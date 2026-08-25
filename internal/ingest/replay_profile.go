@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/json"
@@ -219,19 +220,13 @@ func saveProfileEvent(ctx context.Context, profiles store.ProfileIngestStore, ev
 	return eventID
 }
 
-func saveReplayAttachment(ctx context.Context, attachments attachment.Store, blobs store.BlobStore, projectID, eventID string, item envelope.Item) {
+func saveReplayAttachment(ctx context.Context, attachments attachment.Store, projectID, eventID string, item envelope.Item) error {
 	if strings.TrimSpace(eventID) == "" {
-		l := middleware.LogFromCtx(ctx)
-		l.Debug().Str("project_id", projectID).Msg("envelope: replay attachment skipped because replay id is unavailable")
-		return
+		return fmt.Errorf("replay id is unavailable")
 	}
 	clone := item
 	clone.Header.Filename = replayAttachmentFilename(clone)
-	if strings.TrimSpace(item.Header.Filename) != "" {
-		saveReplayAsset(ctx, attachments, blobs, projectID, eventID, clone)
-		return
-	}
-	saveReplayAsset(ctx, attachments, blobs, projectID, eventID, clone)
+	return saveReplayAsset(ctx, attachments, projectID, eventID, clone)
 }
 
 func replayAttachmentFilename(item envelope.Item) string {
@@ -244,8 +239,29 @@ func replayAttachmentFilename(item envelope.Item) string {
 	case "replay_recording_not_chunked":
 		return "replay-recording-full.json"
 	default:
-		return "replay-recording.json"
+		if segmentID, ok := replayRecordingSegmentID(item.Payload); ok {
+			return fmt.Sprintf("replay-recording-segment-%06d.json", segmentID)
+		}
+		sum := sha1.Sum(item.Payload)
+		return fmt.Sprintf("replay-recording-%x.json", sum[:8])
 	}
+}
+
+// Browser Replay recordings begin with a small JSON header followed by a
+// newline and the (usually zlib-compressed) rrweb event stream. Segment zero is
+// valid, hence the pointer used while decoding it.
+func replayRecordingSegmentID(payload []byte) (int, bool) {
+	newline := bytes.IndexByte(payload, '\n')
+	if newline <= 0 {
+		return 0, false
+	}
+	var header struct {
+		SegmentID *int `json:"segment_id"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(payload[:newline]), &header); err != nil || header.SegmentID == nil || *header.SegmentID < 0 {
+		return 0, false
+	}
+	return *header.SegmentID, true
 }
 
 func replayUserIdentifier(user *replayUser) string {
@@ -255,16 +271,13 @@ func replayUserIdentifier(user *replayUser) string {
 	return firstNonEmpty(strings.TrimSpace(user.ID), strings.TrimSpace(user.Email), strings.TrimSpace(user.Username))
 }
 
-func saveReplayAsset(ctx context.Context, as attachment.Store, bs store.BlobStore, projectID, eventID string, item envelope.Item) {
-	l := middleware.LogFromCtx(ctx)
-
+func saveReplayAsset(ctx context.Context, as attachment.Store, projectID, eventID string, item envelope.Item) error {
 	filename := item.Header.Filename
 	if filename == "" {
 		filename = "unnamed"
 	}
 	if as == nil {
-		saveAttachment(ctx, as, bs, projectID, eventID, item)
-		return
+		return fmt.Errorf("replay attachment store is unavailable")
 	}
 	att := &attachment.Attachment{
 		ID:          replayAttachmentID(projectID, eventID, item.Header.Type, filename),
@@ -275,8 +288,9 @@ func saveReplayAsset(ctx context.Context, as attachment.Store, bs store.BlobStor
 		Size:        int64(len(item.Payload)),
 	}
 	if err := as.SaveAttachment(ctx, att, item.Payload); err != nil {
-		l.Error().Err(err).Str("project_id", projectID).Str("event_id", eventID).Str("name", filename).Msg("envelope: failed to save replay asset")
+		return fmt.Errorf("save replay asset %s: %w", filename, err)
 	}
+	return nil
 }
 
 func replayAttachmentID(projectID, eventID, itemType, filename string) string {

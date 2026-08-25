@@ -62,6 +62,7 @@ func persistEnvelopeSideEffects(ctx context.Context, deps IngestDeps, env *envel
 			if replayPolicyLoaded && !replayAllowed {
 				continue
 			}
+			filename := replayAttachmentFilename(item)
 			payload := item.Payload
 			if replayPolicyLoaded && item.Header.Type != "replay_video" {
 				payload = scrubReplayRecordingPayload(payload, replayPolicy)
@@ -71,7 +72,7 @@ func persistEnvelopeSideEffects(ctx context.Context, deps IngestDeps, env *envel
 					ctx,
 					deps.AttachmentStore,
 					activeReplayEventID,
-					replayAttachmentID(projectID, activeReplayEventID, item.Header.Type, replayAttachmentFilename(item)),
+					replayAttachmentID(projectID, activeReplayEventID, item.Header.Type, filename),
 					int64(len(payload)),
 				)
 				if err != nil {
@@ -87,7 +88,10 @@ func persistEnvelopeSideEffects(ctx context.Context, deps IngestDeps, env *envel
 			}
 			clone := item
 			clone.Payload = payload
-			saveReplayAttachment(ctx, deps.AttachmentStore, deps.BlobStore, projectID, activeReplayEventID, clone)
+			clone.Header.Filename = filename
+			if err := saveReplayAttachment(ctx, deps.AttachmentStore, projectID, activeReplayEventID, clone); err != nil {
+				return fmt.Errorf("save replay recording: %w", err)
+			}
 			if strings.TrimSpace(activeReplayEventID) != "" {
 				replayIndexes[activeReplayEventID] = struct{}{}
 			}

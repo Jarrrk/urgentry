@@ -219,7 +219,16 @@ func (h *Handler) replayDetailPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func replayNeedsCompatibilityReindex(record *sharedstore.ReplayRecord) bool {
-	if record == nil || record.Manifest.ProcessingStatus != sharedstore.ReplayProcessingStatusFailed {
+	if record == nil {
+		return false
+	}
+	// Older builds could store the recording attachment successfully but fail to
+	// populate replay_assets. Rebuild the manifest when the detail page exposes
+	// that stale state so existing recordings can recover without a migration.
+	if len(record.Assets) == 0 {
+		return true
+	}
+	if record.Manifest.ProcessingStatus != sharedstore.ReplayProcessingStatusFailed {
 		return false
 	}
 	errorText := strings.ToLower(record.Manifest.IngestError)

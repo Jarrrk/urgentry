@@ -246,7 +246,7 @@
 <div class="settings-section">
   <div class="section-header">Code Mappings</div>
   <p class="page-subtitle">
-    Turn stack-frame file paths into links to the corresponding source file. Stack Root is replaced by Source Root, then appended to Repository URL and Default Branch. Urgentry only builds browser links; it does not clone repositories, fetch source, or store repository credentials. Private links use your existing browser login. See <code>docs/code-mappings.md</code> for examples and forge compatibility.
+    Turn stack-frame file paths into links to the corresponding source file. Stack Root is replaced by Source Root, then appended to Repository URL and Default Branch. Urgentry only builds browser links; it does not clone repositories, fetch source, or store repository credentials. Private links use your existing browser login. See <code>docs/code-mappings.md</code> for examples.
   </p>
   <form method="post" action="/settings/code-mappings" class="settings-form">
     <input type="hidden" name="project_id" value="{{.ProjectID}}">
@@ -260,8 +260,17 @@
         <input type="text" name="source_root" placeholder="app/src/" value="">
       </label>
       <label class="settings-form-field">
+        <span class="settings-label">Repository Provider</span>
+        <select name="provider">
+          <option value="github">GitHub</option>
+          <option value="gitlab">GitLab</option>
+          <option value="forgejo">Forgejo</option>
+          <option value="gitea">Gitea</option>
+        </select>
+      </label>
+      <label class="settings-form-field">
         <span class="settings-label">Repository URL</span>
-        <input type="url" name="repo_url" placeholder="https://github.com/org/repo" required>
+        <input type="url" name="repo_url" placeholder="https://forge.example.com/org/repo" required>
       </label>
       <label class="settings-form-field">
         <span class="settings-label">Default Branch</span>
@@ -278,6 +287,7 @@
       <tr>
         <th>Stack Root</th>
         <th>Source Root</th>
+        <th>Provider</th>
         <th>Repository</th>
         <th>Branch</th>
         <th>Created</th>
@@ -289,6 +299,7 @@
       <tr>
         <td class="mono">{{.StackRoot}}</td>
         <td class="mono">{{.SourceRoot}}</td>
+        <td>{{.Provider}}</td>
         <td class="mono"><a href="{{.RepoURL}}" target="_blank" rel="noopener">{{.RepoURL}}</a></td>
         <td class="mono">{{.DefaultBranch}}</td>
         <td>{{.CreatedAt}}</td>

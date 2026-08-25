@@ -14,6 +14,7 @@ type codeMappingRequest struct {
 	SourceRoot    string `json:"sourceRoot"`
 	DefaultBranch string `json:"defaultBranch"`
 	RepoURL       string `json:"repoUrl"`
+	Provider      string `json:"provider"`
 }
 
 // handleListCodeMappings handles GET /api/0/projects/{org}/{proj}/code-mappings/.
@@ -68,12 +69,18 @@ func handleCreateCodeMapping(
 		if body.DefaultBranch == "" {
 			body.DefaultBranch = "main"
 		}
+		provider, ok := store.NormalizeCodeMappingProvider(body.Provider)
+		if !ok {
+			httputil.WriteError(w, http.StatusBadRequest, "provider must be github, gitlab, forgejo, or gitea.")
+			return
+		}
 		m := &store.CodeMapping{
 			ProjectID:     project.ID,
 			StackRoot:     body.StackRoot,
 			SourceRoot:    body.SourceRoot,
 			DefaultBranch: body.DefaultBranch,
 			RepoURL:       body.RepoURL,
+			Provider:      provider,
 		}
 		if err := mappings.CreateCodeMapping(r.Context(), m); err != nil {
 			httputil.WriteError(w, http.StatusInternalServerError, "Failed to create code mapping.")

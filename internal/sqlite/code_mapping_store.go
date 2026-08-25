@@ -26,10 +26,15 @@ func (s *CodeMappingStore) CreateCodeMapping(ctx context.Context, m *store.CodeM
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = time.Now().UTC()
 	}
+	provider, ok := store.NormalizeCodeMappingProvider(m.Provider)
+	if !ok {
+		provider = store.CodeMappingProviderGitHub
+	}
+	m.Provider = provider
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO code_mappings (id, project_id, stack_root, source_root, default_branch, repo_url, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.ProjectID, m.StackRoot, m.SourceRoot, m.DefaultBranch, m.RepoURL,
+		`INSERT INTO code_mappings (id, project_id, stack_root, source_root, default_branch, repo_url, provider, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.ProjectID, m.StackRoot, m.SourceRoot, m.DefaultBranch, m.RepoURL, m.Provider,
 		m.CreatedAt.UTC().Format(time.RFC3339),
 	)
 	return err
@@ -38,7 +43,7 @@ func (s *CodeMappingStore) CreateCodeMapping(ctx context.Context, m *store.CodeM
 // ListCodeMappings returns all code mappings for the given project.
 func (s *CodeMappingStore) ListCodeMappings(ctx context.Context, projectID string) ([]*store.CodeMapping, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, stack_root, source_root, default_branch, repo_url, created_at
+		`SELECT id, project_id, stack_root, source_root, default_branch, repo_url, provider, created_at
 		 FROM code_mappings
 		 WHERE project_id = ?
 		 ORDER BY created_at DESC`, projectID)
@@ -51,7 +56,7 @@ func (s *CodeMappingStore) ListCodeMappings(ctx context.Context, projectID strin
 	for rows.Next() {
 		var m store.CodeMapping
 		var createdAt string
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.StackRoot, &m.SourceRoot, &m.DefaultBranch, &m.RepoURL, &createdAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.StackRoot, &m.SourceRoot, &m.DefaultBranch, &m.RepoURL, &m.Provider, &createdAt); err != nil {
 			return nil, err
 		}
 		m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)

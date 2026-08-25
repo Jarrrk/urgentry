@@ -260,6 +260,11 @@ func TestSettingsPage(t *testing.T) {
 	if strings.Contains(body, "/api/proj-1/store/") {
 		t.Error("settings DSN should not use the legacy store endpoint format")
 	}
+	for _, want := range []string{`name="provider"`, `value="forgejo"`, "Forgejo"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("settings page missing repository provider option %q", want)
+		}
+	}
 }
 
 func TestUpdateProjectSettings(t *testing.T) {

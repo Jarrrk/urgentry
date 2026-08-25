@@ -2,10 +2,11 @@
 
 Code mappings turn file paths in stack frames into links to the matching source files in a repository. They do not upload, clone, or fetch source code.
 
-For each frame, Urgentry finds the first mapping whose **Stack Root** is a prefix of the frame filename. It removes that prefix, prepends **Source Root**, and creates this URL:
+For each frame, Urgentry finds the first mapping whose **Stack Root** is a prefix of the frame filename. It removes that prefix, prepends **Source Root**, and creates the URL format selected by **Repository Provider**:
 
 ```text
-{Repository URL}/blob/{Default Branch}/{Source Root}{remaining frame path}#L{line}
+GitHub/GitLab: {Repository URL}/blob/{Default Branch}/{Source Root}{remaining frame path}#L{line}
+Forgejo/Gitea: {Repository URL}/src/branch/{Default Branch}/{Source Root}{remaining frame path}#L{line}
 ```
 
 For example, given:
@@ -14,6 +15,7 @@ For example, given:
 |---|---|
 | Stack Root | `/srv/highlife/` |
 | Source Root | `services/game/` |
+| Repository Provider | `GitHub` |
 | Repository URL | `https://github.com/example/platform` |
 | Default Branch | `main` |
 
@@ -27,6 +29,7 @@ https://github.com/example/platform/blob/main/services/game/client/errors.lua#L4
 
 - **Stack Root** is the path prefix reported by the runtime. Use an empty value to match every frame.
 - **Source Root** is the directory containing that code inside the repository. It may be empty when runtime paths are already repository-relative.
+- **Repository Provider** selects the forge's source-link format.
 - **Repository URL** is the repository's browser URL without a trailing source-file path.
 - **Default Branch** is used for links when an event does not identify a commit. It defaults to `main`.
 
@@ -38,4 +41,4 @@ Urgentry does not make authenticated requests to the repository, so there is no 
 
 Do not put an access token in the Repository URL. It could be exposed in rendered links, logs, browser history, or copied URLs.
 
-The current link format uses `/blob/{branch}/{path}`, as supported by GitHub and GitLab. Forgejo and Gitea normally use `/src/branch/{branch}/{path}` instead, so their source links are not currently generated correctly. Supporting those forges requires a provider-aware or configurable URL template; access-token authentication is still unnecessary for browser links.
+Select **Forgejo** or **Gitea** as the Repository Provider to generate their `/src/branch/{branch}/{path}` source links. GitHub and GitLab use `/blob/{branch}/{path}` links instead. Access-token authentication is unnecessary for either format because the links open in the user's browser.

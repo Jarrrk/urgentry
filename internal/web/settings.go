@@ -51,6 +51,7 @@ type settingsCodeMapping struct {
 	SourceRoot    string
 	DefaultBranch string
 	RepoURL       string
+	Provider      string
 	CreatedAt     string
 }
 
@@ -249,6 +250,7 @@ func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request) {
 					SourceRoot:    m.SourceRoot,
 					DefaultBranch: m.DefaultBranch,
 					RepoURL:       m.RepoURL,
+					Provider:      m.Provider,
 					CreatedAt:     timeAgo(m.CreatedAt),
 				})
 			}
@@ -484,12 +486,18 @@ func (h *Handler) createCodeMapping(w http.ResponseWriter, r *http.Request) {
 	if branch == "" {
 		branch = "main"
 	}
+	provider, ok := sharedstore.NormalizeCodeMappingProvider(r.FormValue("provider"))
+	if !ok {
+		writeWebBadRequest(w, r, "Repository provider must be GitHub, GitLab, Forgejo, or Gitea")
+		return
+	}
 	if err := h.codeMappings.CreateCodeMapping(r.Context(), &sharedstore.CodeMapping{
 		ProjectID:     projectID,
 		StackRoot:     strings.TrimSpace(r.FormValue("stack_root")),
 		SourceRoot:    strings.TrimSpace(r.FormValue("source_root")),
 		DefaultBranch: branch,
 		RepoURL:       repoURL,
+		Provider:      provider,
 	}); err != nil {
 		writeWebBadRequest(w, r, "Failed to create code mapping")
 		return

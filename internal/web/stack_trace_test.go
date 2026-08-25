@@ -2,6 +2,8 @@ package web
 
 import (
 	"testing"
+
+	"urgentry/internal/store"
 )
 
 func TestStackTraceFromPayload_BasicException(t *testing.T) {
@@ -237,5 +239,43 @@ func TestStackTraceFromPayload_SkipsEmptyFrames(t *testing.T) {
 	}
 	if groups[0].Frames[0].File != "app.go" {
 		t.Errorf("File = %q, want app.go", groups[0].Frames[0].File)
+	}
+}
+
+func TestApplyCodeMappingsUsesRepositoryProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		repoURL  string
+		want     string
+	}{
+		{
+			name:     "github",
+			provider: store.CodeMappingProviderGitHub,
+			repoURL:  "https://github.com/highlife/game",
+			want:     "https://github.com/highlife/game/blob/main/resources/client/errors.lua#L42",
+		},
+		{
+			name:     "forgejo",
+			provider: store.CodeMappingProviderForgejo,
+			repoURL:  "https://forge.hlf.is/highlife/game",
+			want:     "https://forge.hlf.is/highlife/game/src/branch/main/resources/client/errors.lua#L42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			groups := []exceptionGroup{{Frames: []richFrame{{File: "/srv/highlife/client/errors.lua", LineNo: 42}}}}
+			applyCodeMappings(groups, []*store.CodeMapping{{
+				StackRoot:     "/srv/highlife/",
+				SourceRoot:    "resources/",
+				DefaultBranch: "main",
+				RepoURL:       tt.repoURL,
+				Provider:      tt.provider,
+			}})
+			if got := groups[0].Frames[0].SourceURL; got != tt.want {
+				t.Fatalf("SourceURL = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

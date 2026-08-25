@@ -178,7 +178,8 @@ func stackTraceFromPayload(payloadJSON []byte) []exceptionGroup {
 // matches the frame's filename. The mapping replaces the StackRoot prefix with
 // the SourceRoot prefix and builds a full URL like:
 //
-//	{RepoURL}/blob/{DefaultBranch}/{SourceRoot}{rest}#L{lineNo}
+//	GitHub/GitLab: {RepoURL}/blob/{DefaultBranch}/{SourceRoot}{rest}#L{lineNo}
+//	Forgejo/Gitea: {RepoURL}/src/branch/{DefaultBranch}/{SourceRoot}{rest}#L{lineNo}
 func applyCodeMappings(groups []exceptionGroup, mappings []*store.CodeMapping) {
 	if len(mappings) == 0 {
 		return
@@ -206,7 +207,14 @@ func applyCodeMappings(groups []exceptionGroup, mappings []*store.CodeMapping) {
 					branch = "main"
 				}
 
-				url := fmt.Sprintf("%s/blob/%s/%s", repoURL, branch, repoPath)
+				provider, _ := store.NormalizeCodeMappingProvider(m.Provider)
+				var url string
+				switch provider {
+				case store.CodeMappingProviderForgejo, store.CodeMappingProviderGitea:
+					url = fmt.Sprintf("%s/src/branch/%s/%s", repoURL, branch, repoPath)
+				default:
+					url = fmt.Sprintf("%s/blob/%s/%s", repoURL, branch, repoPath)
+				}
 				if frame.LineNo > 0 {
 					url += fmt.Sprintf("#L%d", frame.LineNo)
 				}

@@ -260,6 +260,54 @@ func TestIssueDetailPage(t *testing.T) {
 	}
 }
 
+func TestIssueDetailPageShowsAndNavigatesUserFeedback(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	insertGroup(t, db, "grp-feedback-1", "FeedbackError: cannot continue", "client.lua", "error", "unresolved")
+	insertEvent(t, db, "evt-feedback-1", "grp-feedback-1", "FeedbackError: cannot continue", "error", "first feedback event")
+	insertEvent(t, db, "evt-feedback-2", "grp-feedback-1", "FeedbackError: cannot continue", "error", "second feedback event")
+	if _, err := db.Exec(
+		`INSERT INTO user_feedback (id, project_id, event_id, group_id, name, email, comments, created_at)
+		 VALUES
+		 ('feedback-new', 'test-proj', 'evt-feedback-2', 'grp-feedback-1', 'New Player', 'new@example.com', 'Newest player report', '2026-08-25T12:05:00Z'),
+		 ('feedback-old', 'test-proj', 'evt-feedback-1', NULL, 'Old Player', 'old@example.com', 'Older player report', '2026-08-25T12:00:00Z')`,
+	); err != nil {
+		t.Fatalf("insert issue feedback: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/issues/grp-feedback-1/")
+	if err != nil {
+		t.Fatalf("GET issue feedback: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	for _, want := range []string{"User Feedback", "Newest player report", "Feedback 1 of 2", "feedback_offset=1", "Open full feedback"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("issue feedback page missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Older player report") {
+		t.Fatalf("issue feedback page rendered more than the selected report: %s", body)
+	}
+
+	resp, err = http.Get(srv.URL + "/issues/grp-feedback-1/?feedback_offset=1")
+	if err != nil {
+		t.Fatalf("GET older issue feedback: %v", err)
+	}
+	body = getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("older feedback status = %d, want 200", resp.StatusCode)
+	}
+	for _, want := range []string{"Older player report", "Feedback 2 of 2", "feedback_offset=0", "Newer"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("older issue feedback page missing %q: %s", want, body)
+		}
+	}
+}
+
 func TestIssueDetailPage_ShowsBoundNextRelease(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()

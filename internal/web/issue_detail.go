@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -44,9 +45,20 @@ type issueDetailData struct {
 	HasPrevEvent bool
 	HasNextEvent bool
 	TotalEvents  int
+	// User feedback navigation
+	Feedback         feedbackRow
+	FeedbackOffset   int
+	HasFeedback      bool
+	HasOlderFeedback bool
+	HasNewerFeedback bool
+	TotalFeedback    int
 	// Beyond-Sentry: issue diff
 	IssueDiff []IssueDiffEntry
 	Workflow  issueWorkflowView
+}
+
+type issueFeedbackLister interface {
+	ListIssueFeedback(ctx context.Context, groupID string, limit int) ([]store.FeedbackRow, error)
 }
 
 type tagFacet struct {
@@ -256,6 +268,37 @@ func (h *Handler) issueDetailFromDB(w http.ResponseWriter, r *http.Request, id s
 		TagFacets:      tagFacets,
 		Comments:       comments,
 		Workflow:       workflow,
+	}
+
+	if feedbackStore, ok := h.webStore.(issueFeedbackLister); ok {
+		if rows, feedbackErr := feedbackStore.ListIssueFeedback(ctx, id, 1000); feedbackErr == nil && len(rows) > 0 {
+			feedbackOffset := 0
+			if offset, parseErr := strconv.Atoi(r.URL.Query().Get("feedback_offset")); parseErr == nil && offset >= 0 {
+				feedbackOffset = offset
+			}
+			if feedbackOffset >= len(rows) {
+				feedbackOffset = len(rows) - 1
+			}
+			selected := rows[feedbackOffset]
+			name := selected.Name
+			if strings.TrimSpace(name) == "" {
+				name = "Anonymous"
+			}
+			data.Feedback = feedbackRow{
+				ID:        selected.ID,
+				Name:      name,
+				Email:     selected.Email,
+				Comments:  selected.Comments,
+				EventID:   selected.EventID,
+				GroupID:   selected.GroupID,
+				CreatedAt: formatDBTime(selected.CreatedAt.Format("2006-01-02T15:04:05Z07:00")),
+			}
+			data.FeedbackOffset = feedbackOffset
+			data.HasFeedback = true
+			data.HasOlderFeedback = feedbackOffset < len(rows)-1
+			data.HasNewerFeedback = feedbackOffset > 0
+			data.TotalFeedback = len(rows)
+		}
 	}
 
 	// Count total events for navigation.

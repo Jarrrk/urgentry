@@ -60,6 +60,51 @@ func (s *WebStore) GetFeedback(ctx context.Context, projectID, id string) (*stor
 	return &item, nil
 }
 
+// ListIssueFeedback returns feedback linked to an issue either directly by
+// group_id or indirectly through its associated event. The latter covers
+// reports submitted before asynchronous event processing populated group_id.
+func (s *WebStore) ListIssueFeedback(ctx context.Context, groupID string, limit int) ([]store.FeedbackRow, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT uf.id, uf.name, uf.email, uf.comments, uf.event_id,
+		        COALESCE(NULLIF(uf.group_id, ''), g.id), uf.created_at
+		   FROM user_feedback uf
+		   JOIN groups g ON g.id = ? AND g.project_id = uf.project_id
+		  WHERE uf.group_id = g.id
+		     OR EXISTS (
+		         SELECT 1
+		           FROM events e
+		          WHERE e.project_id = uf.project_id
+		            AND e.event_id = uf.event_id
+		            AND e.group_id = g.id
+		     )
+		  ORDER BY uf.created_at DESC, uf.id DESC
+		  LIMIT ?`, groupID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []store.FeedbackRow
+	for rows.Next() {
+		var item store.FeedbackRow
+		var name, email, comments, eventID, resolvedGroupID, createdAt sql.NullString
+		if err := rows.Scan(&item.ID, &name, &email, &comments, &eventID, &resolvedGroupID, &createdAt); err != nil {
+			return nil, err
+		}
+		item.Name = sqlutil.NullStr(name)
+		item.Email = sqlutil.NullStr(email)
+		item.Comments = sqlutil.NullStr(comments)
+		item.EventID = sqlutil.NullStr(eventID)
+		item.GroupID = sqlutil.NullStr(resolvedGroupID)
+		item.CreatedAt = sqlutil.ParseDBTime(sqlutil.NullStr(createdAt))
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 // ListReleases returns release list rows with health stats.
 func (s *WebStore) ListReleases(ctx context.Context, projectID string, limit int) ([]store.ReleaseRow, error) {
 	if limit <= 0 {

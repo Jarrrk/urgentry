@@ -364,6 +364,10 @@ func BuildServer(role string, cfg config.Config, deps Deps) (http.Handler, error
 		mux.Handle("POST /api/{project_id}/otlp/v1/traces/", ingestChain(ingest.OTLPTracesHandler(ingestDeps.Pipeline, ingestDeps.Metrics)))
 		mux.Handle("POST /api/{project_id}/otlp/v1/logs/", ingestChain(ingest.OTLPLogsHandler(ingestDeps.Pipeline, ingestDeps.Metrics)))
 		mux.Handle("POST /api/{project_id}/otlp/v1/metrics/", ingestChain(ingest.OTLPMetricsHandler(ingestDeps.MetricBuckets, ingestDeps.Metrics)))
+		reportDialog := ingest.ReportDialogHandler(deps.KeyStore, ingestDeps.FeedbackStore)
+		mux.Handle("GET /api/embed/error-page/", reportDialog)
+		mux.Handle("POST /api/embed/error-page/", reportDialog)
+		mux.Handle("OPTIONS /api/embed/error-page/", reportDialog)
 		mux.Handle("OPTIONS /api/{project_id}/store/", middleware.IngestCORS(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})))

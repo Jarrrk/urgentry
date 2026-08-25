@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"urgentry/internal/pipeline"
 	"urgentry/internal/sqlite"
 	"urgentry/internal/store"
+	"urgentry/pkg/dsn"
 )
 
 func newTestServer(t *testing.T) roleTestServer {
@@ -334,6 +336,131 @@ func TestStoreEndpointCORS(t *testing.T) {
 	acam := resp.Header.Get("Access-Control-Allow-Methods")
 	if !strings.Contains(acam, "POST") {
 		t.Errorf("CORS Allow-Methods = %q, want to contain POST", acam)
+	}
+}
+
+func TestSentryReportDialogRendersAndSubmitsFeedback(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.server.Close()
+
+	dsnURL := "http://" + srv.projectKey + "@" + strings.TrimPrefix(srv.server.URL, "http://") + "/" + dsn.PublicProjectID("default-project")
+	eventID := "0123456789abcdef0123456789abcdef"
+	query := url.Values{
+		"dsn":       {dsnURL},
+		"eventId":   {eventID},
+		"name":      {"HighLife Player"},
+		"email":     {"player@highliferoleplay.net"},
+		"title":     {"HighLife ran into an unexpected error"},
+		"subtitle2": {"<unexpected> & safe"},
+	}
+	endpoint := srv.server.URL + "/api/embed/error-page/?" + query.Encode()
+
+	resp, err := http.Get(endpoint)
+	if err != nil {
+		t.Fatalf("GET /api/embed/error-page/: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200; body = %s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.Contains(got, "application/javascript") {
+		t.Fatalf("Content-Type = %q, want JavaScript", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want *", got)
+	}
+	if got := resp.Header.Get("Cross-Origin-Resource-Policy"); got != "cross-origin" {
+		t.Fatalf("Cross-Origin-Resource-Policy = %q, want cross-origin", got)
+	}
+	if !strings.Contains(string(body), "HighLife ran into an unexpected error") || !strings.Contains(string(body), "HighLife Player") {
+		t.Fatalf("custom report dialog options missing from script: %s", body)
+	}
+	if strings.Contains(string(body), "%!s") || !strings.Contains(string(body), "width:min(620px,100%)") {
+		t.Fatalf("report dialog script formatting is invalid: %s", body)
+	}
+	if strings.Contains(string(body), "<unexpected>") {
+		t.Fatalf("custom dialog text was not safely JSON encoded: %s", body)
+	}
+
+	form := url.Values{
+		"name":     {"HighLife Player"},
+		"email":    {"player@highliferoleplay.net"},
+		"comments": {"The game stopped responding after I opened my inventory."},
+	}
+	postResp, err := http.PostForm(endpoint, form)
+	if err != nil {
+		t.Fatalf("POST /api/embed/error-page/: %v", err)
+	}
+	postBody, _ := io.ReadAll(postResp.Body)
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST status = %d, want 200; body = %s", postResp.StatusCode, postBody)
+	}
+
+	var count int
+	var projectID, storedEventID, name, email, comments string
+	if err := srv.db.QueryRow(`SELECT COUNT(*), project_id, event_id, name, email, comments
+		FROM user_feedback WHERE project_id = 'default-project' AND event_id = ?`, eventID).
+		Scan(&count, &projectID, &storedEventID, &name, &email, &comments); err != nil {
+		t.Fatalf("load saved feedback: %v", err)
+	}
+	if count != 1 || projectID != "default-project" || storedEventID != eventID || name != form.Get("name") || email != form.Get("email") || comments != form.Get("comments") {
+		t.Fatalf("saved feedback = count:%d project:%q event:%q name:%q email:%q comments:%q", count, projectID, storedEventID, name, email, comments)
+	}
+
+	form.Set("comments", "Updated details")
+	updateResp, err := http.PostForm(endpoint, form)
+	if err != nil {
+		t.Fatalf("second POST /api/embed/error-page/: %v", err)
+	}
+	updateResp.Body.Close()
+	if updateResp.StatusCode != http.StatusOK {
+		t.Fatalf("second POST status = %d, want 200", updateResp.StatusCode)
+	}
+	if err := srv.db.QueryRow(`SELECT COUNT(*), comments FROM user_feedback WHERE project_id = 'default-project' AND event_id = ?`, eventID).Scan(&count, &comments); err != nil {
+		t.Fatalf("load updated feedback: %v", err)
+	}
+	if count != 1 || comments != "Updated details" {
+		t.Fatalf("updated feedback = count:%d comments:%q", count, comments)
+	}
+}
+
+func TestSentryReportDialogRejectsInvalidProjectAndForm(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.server.Close()
+
+	host := strings.TrimPrefix(srv.server.URL, "http://")
+	eventID := "0123456789abcdef0123456789abcdef"
+	badDSN := "http://" + srv.projectKey + "@" + host + "/123"
+	badResp, err := http.Get(srv.server.URL + "/api/embed/error-page/?" + url.Values{"dsn": {badDSN}, "eventId": {eventID}}.Encode())
+	if err != nil {
+		t.Fatalf("GET invalid DSN: %v", err)
+	}
+	badResp.Body.Close()
+	if badResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("invalid DSN status = %d, want 404", badResp.StatusCode)
+	}
+
+	validDSN := "http://" + srv.projectKey + "@" + host + "/" + dsn.PublicProjectID("default-project")
+	endpoint := srv.server.URL + "/api/embed/error-page/?" + url.Values{"dsn": {validDSN}, "eventId": {eventID}}.Encode()
+	invalidResp, err := http.PostForm(endpoint, url.Values{"name": {""}, "email": {"not-an-email"}, "comments": {""}})
+	if err != nil {
+		t.Fatalf("POST invalid form: %v", err)
+	}
+	defer invalidResp.Body.Close()
+	if invalidResp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(invalidResp.Body)
+		t.Fatalf("invalid form status = %d, want 400; body = %s", invalidResp.StatusCode, body)
+	}
+	var payload struct {
+		Errors map[string][]string `json:"errors"`
+	}
+	if err := json.NewDecoder(invalidResp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode invalid form response: %v", err)
+	}
+	if payload.Errors["name"] == nil || payload.Errors["email"] == nil || payload.Errors["comments"] == nil {
+		t.Fatalf("invalid form errors = %#v", payload.Errors)
 	}
 }
 

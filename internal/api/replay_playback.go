@@ -156,7 +156,7 @@ func handleDownloadReplayAsset(db *sql.DB, queries telemetryquery.Service, blobs
 
 func handleGetReplayRecordingEvents(db *sql.DB, queries telemetryquery.Service, blobs sharedstore.BlobStore, guard sqlite.QueryGuard, auth authFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, replayID, ok := guardReplayProjectRead(w, r, db, guard, auth, 500, true)
+		projectID, replayID, ok := guardReplayProjectRead(w, r, db, guard, auth, 1, true)
 		if !ok {
 			return
 		}

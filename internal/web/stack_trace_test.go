@@ -1,6 +1,7 @@
 package web
 
 import (
+	"strconv"
 	"testing"
 
 	"urgentry/internal/store"
@@ -261,7 +262,7 @@ func TestApplyCodeMappingsUsesRepositoryProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			groups := []exceptionGroup{{Frames: []richFrame{{File: tt.frameFile, LineNo: tt.lineNo}}}}
+			groups := []exceptionGroup{{Type: tt.frameFile + ":" + strconv.Itoa(tt.lineNo), Frames: []richFrame{{File: tt.frameFile, LineNo: tt.lineNo}}}}
 			applyCodeMappings(groups, []*store.CodeMapping{{
 				StackRoot:     tt.stackRoot,
 				SourceRoot:    tt.sourceRoot,
@@ -271,6 +272,9 @@ func TestApplyCodeMappingsUsesRepositoryProvider(t *testing.T) {
 			}})
 			if got := groups[0].Frames[0].SourceURL; got != tt.want {
 				t.Fatalf("SourceURL = %q, want %q", got, tt.want)
+			}
+			if got := groups[0].HeaderSourceURL; got != tt.want {
+				t.Fatalf("HeaderSourceURL = %q, want %q", got, tt.want)
 			}
 		})
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	pathpkg "path"
+	"strconv"
 	"strings"
 
 	"urgentry/internal/store"
@@ -16,15 +17,16 @@ import (
 
 // exceptionGroup represents one exception in a chain with its stack trace.
 type exceptionGroup struct {
-	Type       string
-	Value      string
-	Module     string
-	Mechanism  string // e.g. "generic", "onerror", "onunhandledrejection"
-	Handled    string // "true", "false", or "" if unknown
-	Frames     []richFrame
-	HasFrames  bool
-	InAppCount int
-	LibCount   int
+	Type            string
+	Value           string
+	Module          string
+	Mechanism       string // e.g. "generic", "onerror", "onunhandledrejection"
+	Handled         string // "true", "false", or "" if unknown
+	HeaderSourceURL string
+	Frames          []richFrame
+	HasFrames       bool
+	InAppCount      int
+	LibCount        int
 }
 
 // richFrame extends stackFrame with richer metadata for the detail page.
@@ -187,9 +189,13 @@ func applyCodeMappings(groups []exceptionGroup, mappings []*store.CodeMapping) {
 		return
 	}
 	for gi := range groups {
+		groups[gi].HeaderSourceURL = exceptionSourceURL(groups[gi].Type, mappings)
 		for fi := range groups[gi].Frames {
 			frame := &groups[gi].Frames[fi]
 			frame.SourceURL = codeMappingSourceURL(frame.File, frame.LineNo, mappings)
+		}
+		if groups[gi].HeaderSourceURL == "" && len(groups[gi].Frames) > 0 {
+			groups[gi].HeaderSourceURL = groups[gi].Frames[0].SourceURL
 		}
 	}
 }
@@ -228,6 +234,19 @@ func codeMappingSourceURL(filename string, lineNo int, mappings []*store.CodeMap
 		sourceURL += fmt.Sprintf("#L%d", lineNo)
 	}
 	return sourceURL
+}
+
+func exceptionSourceURL(exceptionType string, mappings []*store.CodeMapping) string {
+	exceptionType = strings.TrimSpace(exceptionType)
+	separator := strings.LastIndex(exceptionType, ":")
+	if separator <= 0 {
+		return ""
+	}
+	lineNo, err := strconv.Atoi(strings.TrimSpace(exceptionType[separator+1:]))
+	if err != nil || lineNo <= 0 {
+		return ""
+	}
+	return codeMappingSourceURL(strings.TrimSpace(exceptionType[:separator]), lineNo, mappings)
 }
 
 func matchingCodeMapping(filename string, mappings []*store.CodeMapping) (*store.CodeMapping, string) {

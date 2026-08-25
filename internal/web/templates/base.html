@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/feather-icons/dist/feather.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=30">
+  <link rel="stylesheet" href="/static/style.css?v=31">
   <script src="https://unpkg.com/htmx.org@2.0.0"></script>
   <script>
     // Apply saved theme immediately (before paint) to avoid flash.
@@ -640,6 +640,36 @@
     if (contentWidthToggle) {
       contentWidthToggle.setAttribute('aria-pressed', document.documentElement.getAttribute('data-content-width') === 'full' ? 'true' : 'false');
     }
+
+    function highlightLuaSource() {
+      var keywords = 'and|break|do|else|elseif|end|for|function|goto|if|in|local|not|or|repeat|return|then|until|while';
+      var builtins = 'assert|collectgarbage|error|getmetatable|ipairs|next|pairs|pcall|print|rawequal|rawget|rawlen|rawset|require|select|setmetatable|tonumber|tostring|type|xpcall';
+      var pattern = new RegExp('(--.*$)|("(?:\\\\.|[^"\\\\])*"|\\\'(?:\\\\.|[^\\\'\\\\])*\\\')|\\b(' + keywords + ')\\b|\\b(true|false|nil)\\b|\\b(' + builtins + ')\\b|\\b(0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b', 'g');
+      document.querySelectorAll('.frame[data-source-file] .line-content').forEach(function(line) {
+        var frame = line.closest('.frame');
+        var filename = (frame.getAttribute('data-source-file') || '').toLowerCase();
+        if (!filename.endsWith('.lua') || line.dataset.highlighted === 'true') return;
+        var source = line.textContent;
+        var fragment = document.createDocumentFragment();
+        var last = 0;
+        var match;
+        while ((match = pattern.exec(source)) !== null) {
+          if (match.index > last) fragment.appendChild(document.createTextNode(source.slice(last, match.index)));
+          var token = document.createElement('span');
+          token.className = match[1] ? 'syntax-comment' : match[2] ? 'syntax-string' : match[3] ? 'syntax-keyword' : match[4] ? 'syntax-literal' : match[5] ? 'syntax-builtin' : 'syntax-number';
+          token.textContent = match[0];
+          fragment.appendChild(token);
+          last = pattern.lastIndex;
+        }
+        if (last < source.length) fragment.appendChild(document.createTextNode(source.slice(last)));
+        line.textContent = '';
+        line.appendChild(fragment);
+        line.dataset.highlighted = 'true';
+      });
+    }
+
+    highlightLuaSource();
+    document.body.addEventListener('htmx:afterSwap', highlightLuaSource);
 
     // Initialize Feather Icons
     if (typeof feather !== 'undefined') feather.replace();

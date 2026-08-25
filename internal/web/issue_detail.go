@@ -362,9 +362,14 @@ func (h *Handler) issueDetailFromDB(w http.ResponseWriter, r *http.Request, id s
 				if mappings, mapErr := h.codeMappings.ListCodeMappings(ctx, scope.ProjectID); mapErr == nil {
 					applyCodeMappingsToFrames(data.Frames, mappings)
 					h.applyCodeSourceContext(ctx, nil, data.Frames, mappings)
+					data.Event.ExceptionSourceURL = exceptionSourceURL(levType, mappings)
+					if data.Event.ExceptionSourceURL == "" && len(data.Frames) > 0 {
+						data.Event.ExceptionSourceURL = data.Frames[0].SourceURL
+					}
 				}
 			}
 		}
+		collapseSourceContexts(nil, data.Frames)
 
 		// Tags from normalized JSON or tags_json.
 		tags := make([]kvPair, 0, len(latestEvent.Tags))

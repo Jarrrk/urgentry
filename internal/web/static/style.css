@@ -1742,6 +1742,14 @@ span.event-counter {
   color: var(--error);
 }
 
+.stacktrace-source-link {
+  text-decoration: none;
+}
+
+.stacktrace-source-link:hover {
+  text-decoration: underline;
+}
+
 .stacktrace-value {
   font-size: var(--size-base);
   color: var(--text-secondary);
@@ -1824,6 +1832,13 @@ span.event-counter {
 .frame-code .code-line:not(.highlight) .line-content {
   color: var(--text-tertiary);
 }
+
+.frame-code .syntax-comment { color: var(--code-comment); }
+.frame-code .syntax-string { color: var(--code-string); }
+.frame-code .syntax-keyword,
+.frame-code .syntax-literal { color: var(--code-keyword); }
+.frame-code .syntax-builtin { color: var(--code-function); }
+.frame-code .syntax-number { color: var(--code-number); }
 
 /* Rich stack trace enhancements */
 .stacktrace-mechanism {

@@ -55,7 +55,7 @@ func groupFrames(frames []stackFrame) []frameGroup {
 	}
 
 	for _, f := range frames {
-		if f.InApp {
+		if f.InApp || (!f.Collapsed && len(f.CodeLines) > 0) {
 			flushLib()
 			groups = append(groups, frameGroup{
 				IsCollapsed: false,

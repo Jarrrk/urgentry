@@ -42,18 +42,19 @@ type eventAttachmentRow struct {
 }
 
 type eventDetailView struct {
-	EventID          string
-	ShortEventID     string
-	IssueID          string
-	Title            string
-	Level            string
-	ExceptionType    string
-	ExceptionValue   string
-	ProcessingStatus string
-	IngestError      string
-	ResolvedFrames   int
-	UnresolvedFrames int
-	TimeAgo          string
+	EventID            string
+	ShortEventID       string
+	IssueID            string
+	Title              string
+	Level              string
+	ExceptionType      string
+	ExceptionValue     string
+	ExceptionSourceURL string
+	ProcessingStatus   string
+	IngestError        string
+	ResolvedFrames     int
+	UnresolvedFrames   int
+	TimeAgo            string
 }
 
 type stackFrame struct {
@@ -65,6 +66,7 @@ type stackFrame struct {
 	MappedFrom string // e.g. "mapped from app.min.js:1:45678" (empty if not source-mapped)
 	SourceURL  string
 	CodeLines  []codeLine
+	Collapsed  bool
 }
 
 type codeLine struct {
@@ -126,6 +128,7 @@ func (h *Handler) eventDetailFromDB(w http.ResponseWriter, r *http.Request, even
 
 	frames := generateFramesFromDB(event)
 	excGroups := stackTraceFromPayload([]byte(event.NormalizedJSON))
+	excSourceURL := ""
 
 	// Resolve source maps if a resolver and release tag are available.
 	if h.sourceResolver != nil {
@@ -152,9 +155,14 @@ func (h *Handler) eventDetailFromDB(w http.ResponseWriter, r *http.Request, even
 				applyCodeMappings(excGroups, mappings)
 				applyCodeMappingsToFrames(frames, mappings)
 				h.applyCodeSourceContext(r.Context(), excGroups, frames, mappings)
+				excSourceURL = exceptionSourceURL(excType, mappings)
+				if excSourceURL == "" && len(frames) > 0 {
+					excSourceURL = frames[0].SourceURL
+				}
 			}
 		}
 	}
+	collapseSourceContexts(excGroups, frames)
 
 	breadcrumbs := parseBreadcrumbsWithTime(event.NormalizedJSON, event.Timestamp)
 
@@ -180,18 +188,19 @@ func (h *Handler) eventDetailFromDB(w http.ResponseWriter, r *http.Request, even
 		Environment:  readSelectedEnvironment(r),
 		Environments: h.loadEnvironments(r.Context()),
 		Event: eventDetailView{
-			EventID:          event.EventID,
-			ShortEventID:     short,
-			IssueID:          event.GroupID,
-			Title:            event.Title,
-			Level:            event.Level,
-			ExceptionType:    excType,
-			ExceptionValue:   excValue,
-			ProcessingStatus: string(event.ProcessingStatus),
-			IngestError:      event.IngestError,
-			ResolvedFrames:   resolvedFrames,
-			UnresolvedFrames: unresolvedFrames,
-			TimeAgo:          timeAgo(event.Timestamp),
+			EventID:            event.EventID,
+			ShortEventID:       short,
+			IssueID:            event.GroupID,
+			Title:              event.Title,
+			Level:              event.Level,
+			ExceptionType:      excType,
+			ExceptionValue:     excValue,
+			ExceptionSourceURL: excSourceURL,
+			ProcessingStatus:   string(event.ProcessingStatus),
+			IngestError:        event.IngestError,
+			ResolvedFrames:     resolvedFrames,
+			UnresolvedFrames:   unresolvedFrames,
+			TimeAgo:            timeAgo(event.Timestamp),
 		},
 		Frames:          frames,
 		ExceptionGroups: excGroups,

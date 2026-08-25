@@ -199,7 +199,7 @@
         {{if .FrameGroups}}
         <div class="stacktrace">
           <div class="stacktrace-header">
-            <span class="stacktrace-type">{{.Event.ExceptionType}}</span>
+            {{if .Event.ExceptionSourceURL}}<a href="{{.Event.ExceptionSourceURL}}" target="_blank" rel="noopener" class="stacktrace-type stacktrace-source-link">{{.Event.ExceptionType}}</a>{{else}}<span class="stacktrace-type">{{.Event.ExceptionType}}</span>{{end}}
             <span class="stacktrace-value">{{.Event.ExceptionValue}}</span>
           </div>
           {{range .FrameGroups}}
@@ -208,9 +208,9 @@
               <div class="collapsed-bar">Show {{.Count}} more frames &#9662;</div>
               <div class="collapsed-content">
                 {{range .Frames}}
-                <div class="frame frame-system">
+                <div class="frame frame-system" data-source-file="{{.File}}">
                   <div class="frame-header" {{if .CodeLines}}onclick="event.stopPropagation(); var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}"{{end}}>
-                    {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">&#9660;</span>{{else}}<span class="frame-toggle"></span>{{end}}
+                    {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">{{if .Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>{{else}}<span class="frame-toggle"></span>{{end}}
                     {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
                     <span class="frame-in">in</span>
                     <span class="frame-func">{{.Function}}</span>
@@ -218,7 +218,7 @@
                     <button class="copy-btn frame-copy" onclick="event.stopPropagation(); copyToClipboard('{{.File}}:{{.LineNo}} in {{.Function}}', this)" title="Copy frame path"><i data-feather="copy"></i></button>
                   </div>
                   {{if .CodeLines}}
-                  <div class="frame-code">
+                  <div class="frame-code"{{if .Collapsed}} style="display:none"{{end}}>
                     {{range .CodeLines}}
                     <div class="code-line {{if .Highlight}}highlight{{end}}">
                       <span class="line-no">{{.Number}}</span>
@@ -234,9 +234,9 @@
             </div>
             {{else}}
             {{range .Frames}}
-            <div class="frame frame-inapp">
+            <div class="frame {{if .InApp}}frame-inapp{{else}}frame-system{{end}}" data-source-file="{{.File}}">
               <div class="frame-header" {{if .CodeLines}}onclick="var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}"{{end}}>
-                {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">&#9660;</span>{{else}}<span class="frame-toggle"></span>{{end}}
+                {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">{{if .Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>{{else}}<span class="frame-toggle"></span>{{end}}
                 {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
                 <span class="frame-in">in</span>
                 <span class="frame-func">{{.Function}}</span>
@@ -245,7 +245,7 @@
                 <button class="copy-btn frame-copy" onclick="event.stopPropagation(); copyToClipboard('{{.File}}:{{.LineNo}} in {{.Function}}', this)" title="Copy frame path"><i data-feather="copy"></i></button>
               </div>
               {{if .CodeLines}}
-              <div class="frame-code">
+              <div class="frame-code"{{if .Collapsed}} style="display:none"{{end}}>
                 {{range .CodeLines}}
                 <div class="code-line {{if .Highlight}}highlight{{end}}">
                   <span class="line-no">{{.Number}}</span>
@@ -263,13 +263,13 @@
         {{else if .Frames}}
         <div class="stacktrace">
           <div class="stacktrace-header">
-            <span class="stacktrace-type">{{.Event.ExceptionType}}</span>
+            {{if .Event.ExceptionSourceURL}}<a href="{{.Event.ExceptionSourceURL}}" target="_blank" rel="noopener" class="stacktrace-type stacktrace-source-link">{{.Event.ExceptionType}}</a>{{else}}<span class="stacktrace-type">{{.Event.ExceptionType}}</span>{{end}}
             <span class="stacktrace-value">{{.Event.ExceptionValue}}</span>
           </div>
           {{range .Frames}}
-          <div class="frame {{if .InApp}}frame-inapp{{else}}frame-system{{end}}">
+          <div class="frame {{if .InApp}}frame-inapp{{else}}frame-system{{end}}" data-source-file="{{.File}}">
             <div class="frame-header" {{if .CodeLines}}onclick="var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}"{{end}}>
-              {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">&#9660;</span>{{else}}<span class="frame-toggle"></span>{{end}}
+              {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">{{if .Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>{{else}}<span class="frame-toggle"></span>{{end}}
               {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
               <span class="frame-in">in</span>
               <span class="frame-func">{{.Function}}</span>
@@ -278,7 +278,7 @@
               <button class="copy-btn frame-copy" onclick="event.stopPropagation(); copyToClipboard('{{.File}}:{{.LineNo}} in {{.Function}}', this)" title="Copy frame path"><i data-feather="copy"></i></button>
             </div>
             {{if .CodeLines}}
-            <div class="frame-code">
+            <div class="frame-code"{{if .Collapsed}} style="display:none"{{end}}>
               {{range .CodeLines}}
               <div class="code-line {{if .Highlight}}highlight{{end}}">
                 <span class="line-no">{{.Number}}</span>

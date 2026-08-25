@@ -33,8 +33,14 @@ func TestForgejoSourceContext(t *testing.T) {
 		StackRoot: "highlife/", SourceRoot: "[highlife]/highlife/", DefaultBranch: "master",
 		RepoURL: forgejo.URL + "/HighLife/core", Provider: store.CodeMappingProviderForgejo,
 	}
-	groups := []exceptionGroup{{Frames: []richFrame{{File: "highlife/client/core/error.lua", LineNo: 7}}}}
-	frames := []stackFrame{{File: "highlife/client/core/error.lua", LineNo: 7}}
+	groups := []exceptionGroup{{Frames: []richFrame{
+		{File: "highlife/client/core/error.lua", LineNo: 7},
+		{File: "highlife/client/core/error.lua", LineNo: 8},
+	}}}
+	frames := []stackFrame{
+		{File: "highlife/client/core/error.lua", LineNo: 7},
+		{File: "highlife/client/core/error.lua", LineNo: 8},
+	}
 	handler := &Handler{codeSource: newForgejoSourceClient(forgejo.URL, "source-token", forgejo.Client())}
 	handler.applyCodeSourceContext(t.Context(), groups, frames, []*store.CodeMapping{mapping})
 
@@ -46,5 +52,12 @@ func TestForgejoSourceContext(t *testing.T) {
 	}
 	if len(frames[0].CodeLines) != 11 || !frames[0].CodeLines[5].Highlight || frames[0].CodeLines[5].Content != "error line" {
 		t.Fatalf("flat source context = %+v", frames[0].CodeLines)
+	}
+	if groups[0].Frames[0].Collapsed || !groups[0].Frames[1].Collapsed || frames[0].Collapsed || !frames[1].Collapsed {
+		t.Fatalf("source collapse state = rich %v/%v flat %v/%v", groups[0].Frames[0].Collapsed, groups[0].Frames[1].Collapsed, frames[0].Collapsed, frames[1].Collapsed)
+	}
+	frameGroups := groupFrames(frames)
+	if len(frameGroups) < 1 || frameGroups[0].IsCollapsed {
+		t.Fatalf("first source frame should remain visible: %+v", frameGroups)
 	}
 }

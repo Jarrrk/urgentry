@@ -102,6 +102,7 @@ func (c *forgejoSourceClient) fetch(ctx context.Context, mapping *store.CodeMapp
 
 func (h *Handler) applyCodeSourceContext(ctx context.Context, groups []exceptionGroup, frames []stackFrame, mappings []*store.CodeMapping) {
 	if h.codeSource == nil || len(mappings) == 0 {
+		collapseSourceContexts(groups, frames)
 		return
 	}
 	cache := make(map[string][]string)
@@ -140,6 +141,27 @@ func (h *Handler) applyCodeSourceContext(ctx context.Context, groups []exception
 			continue
 		}
 		frames[i].CodeLines = sourceCodeLines(load(frames[i].File), frames[i].LineNo)
+	}
+	collapseSourceContexts(groups, frames)
+}
+
+func collapseSourceContexts(groups []exceptionGroup, frames []stackFrame) {
+	firstRichContext := true
+	for gi := range groups {
+		for fi := range groups[gi].Frames {
+			frame := &groups[gi].Frames[fi]
+			frame.Collapsed = !frame.HasContext || !firstRichContext
+			if frame.HasContext {
+				firstRichContext = false
+			}
+		}
+	}
+	firstFlatContext := true
+	for i := range frames {
+		frames[i].Collapsed = len(frames[i].CodeLines) == 0 || !firstFlatContext
+		if len(frames[i].CodeLines) > 0 {
+			firstFlatContext = false
+		}
 	}
 }
 

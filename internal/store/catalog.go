@@ -14,6 +14,12 @@ type Organization struct {
 	DateCreated time.Time `json:"dateCreated"`
 }
 
+// OrganizationCreateInput captures the fields needed to create an organization.
+type OrganizationCreateInput struct {
+	Name string
+	Slug string
+}
+
 // Team is the shared team model used by SQLite, API, and web.
 type Team struct {
 	ID          string    `json:"id"`

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"database/sql"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"urgentry/internal/auth"
+	"urgentry/internal/requestmeta"
 	sharedstore "urgentry/internal/store"
 )
 
@@ -29,16 +29,10 @@ func (h *Handler) manageGuard(w http.ResponseWriter, r *http.Request) *sharedsto
 		http.Error(w, "Admin console unavailable", http.StatusServiceUnavailable)
 		return nil
 	}
-	// Require org:admin on at least one org.
 	for i := range orgs {
-		projects, pErr := h.catalog.ListProjects(r.Context(), orgs[i].Slug)
-		if pErr != nil || len(projects) == 0 {
-			continue
+		if h.canAdminOrganization(r, orgs[i].Slug) {
+			return &orgs[i]
 		}
-		if h.authz != nil && h.authz.AuthorizeProject(r, projects[0].ID, auth.ScopeOrgAdmin) != nil {
-			continue
-		}
-		return &orgs[i]
 	}
 	http.Error(w, "Forbidden", http.StatusForbidden)
 	return nil
@@ -76,8 +70,23 @@ func (h *Handler) manageDashboardPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	orgs, _ := h.catalog.ListOrganizations(r.Context())
-	projects, _ := h.catalog.ListProjects(r.Context(), "")
-	userCount := countUsers(h.db, r)
+	managedOrgs := make([]sharedstore.Organization, 0, len(orgs))
+	projectCount := 0
+	managedUsers := map[string]struct{}{}
+	for _, org := range orgs {
+		if !h.canAdminOrganization(r, org.Slug) {
+			continue
+		}
+		managedOrgs = append(managedOrgs, org)
+		projects, _ := h.catalog.ListProjects(r.Context(), org.Slug)
+		projectCount += len(projects)
+		if h.admin != nil {
+			members, _ := h.admin.ListOrgMembers(r.Context(), org.Slug)
+			for _, member := range members {
+				managedUsers[member.UserID] = struct{}{}
+			}
+		}
+	}
 	dbSize := h.databaseFileSize()
 
 	h.render(w, "manage-dashboard.html", manageDashboardData{
@@ -88,9 +97,9 @@ func (h *Handler) manageDashboardPage(w http.ResponseWriter, r *http.Request) {
 			Environment:  readSelectedEnvironment(r),
 			Environments: h.loadEnvironments(r.Context()),
 		},
-		OrgCount:     len(orgs),
-		ProjectCount: len(projects),
-		UserCount:    userCount,
+		OrgCount:     len(managedOrgs),
+		ProjectCount: projectCount,
+		UserCount:    len(managedUsers),
 		DBSizeBytes:  dbSize,
 		DBSizeFmt:    formatBytes(dbSize),
 		Uptime:       time.Since(h.startedAt).Truncate(time.Second).String(),
@@ -112,12 +121,23 @@ type manageOrg struct {
 type manageOrgsData struct {
 	manageBase
 	Organizations []manageOrg
+	CreateForm    manageOrganizationForm
+}
+
+type manageOrganizationForm struct {
+	Name  string
+	Slug  string
+	Error string
 }
 
 func (h *Handler) manageOrganizationsPage(w http.ResponseWriter, r *http.Request) {
 	if h.manageGuard(w, r) == nil {
 		return
 	}
+	h.renderManageOrganizationsPage(w, r, manageOrganizationForm{})
+}
+
+func (h *Handler) renderManageOrganizationsPage(w http.ResponseWriter, r *http.Request, form manageOrganizationForm) {
 
 	orgs, err := h.catalog.ListOrganizations(r.Context())
 	if err != nil {
@@ -127,6 +147,9 @@ func (h *Handler) manageOrganizationsPage(w http.ResponseWriter, r *http.Request
 
 	items := make([]manageOrg, 0, len(orgs))
 	for _, org := range orgs {
+		if !h.canAdminOrganization(r, org.Slug) {
+			continue
+		}
 		projects, _ := h.catalog.ListProjects(r.Context(), org.Slug)
 		items = append(items, manageOrg{
 			ID:           org.ID,
@@ -146,7 +169,103 @@ func (h *Handler) manageOrganizationsPage(w http.ResponseWriter, r *http.Request
 			Environments: h.loadEnvironments(r.Context()),
 		},
 		Organizations: items,
+		CreateForm:    form,
 	})
+}
+
+func (h *Handler) createManagedOrganization(w http.ResponseWriter, r *http.Request) {
+	if h.manageGuard(w, r) == nil {
+		return
+	}
+	if !h.requireManageCSRF(w, r) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeWebBadRequest(w, r, "Invalid form")
+		return
+	}
+
+	form := manageOrganizationForm{
+		Name: strings.TrimSpace(r.FormValue("name")),
+		Slug: normalizeProjectSlug(r.FormValue("slug")),
+	}
+	if form.Name == "" {
+		form.Error = "Organization name is required."
+		h.renderManageOrganizationsPage(w, r, form)
+		return
+	}
+	if form.Slug == "" {
+		form.Slug = normalizeProjectSlug(form.Name)
+	}
+	if form.Slug == "" {
+		form.Error = "Organization slug must contain a letter or number."
+		h.renderManageOrganizationsPage(w, r, form)
+		return
+	}
+	existing, err := h.catalog.GetOrganization(r.Context(), form.Slug)
+	if err != nil {
+		writeWebInternal(w, r, "Failed to check organization slug.")
+		return
+	}
+	if existing != nil {
+		form.Error = "An organization with that slug already exists."
+		h.renderManageOrganizationsPage(w, r, form)
+		return
+	}
+	principal := auth.PrincipalFromContext(r.Context())
+	if principal == nil || principal.User == nil || principal.User.ID == "" {
+		writeWebForbidden(w, r)
+		return
+	}
+	org, err := h.catalog.CreateOrganization(r.Context(), sharedstore.OrganizationCreateInput{Name: form.Name, Slug: form.Slug}, principal.User.ID)
+	if err != nil || org == nil {
+		form.Error = "Failed to create organization."
+		h.renderManageOrganizationsPage(w, r, form)
+		return
+	}
+	http.Redirect(w, r, "/manage/organizations/", http.StatusSeeOther)
+}
+
+func (h *Handler) updateManagedOrganization(w http.ResponseWriter, r *http.Request) {
+	if h.manageGuard(w, r) == nil {
+		return
+	}
+	if !h.requireManageCSRF(w, r) {
+		return
+	}
+	orgSlug := strings.TrimSpace(r.PathValue("org_slug"))
+	if !h.canAdminOrganization(r, orgSlug) {
+		writeWebForbidden(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeWebBadRequest(w, r, "Invalid form")
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	newSlug := normalizeProjectSlug(r.FormValue("slug"))
+	if name == "" || newSlug == "" {
+		writeWebBadRequest(w, r, "Name and slug are required")
+		return
+	}
+	updated, err := h.catalog.UpdateOrganization(r.Context(), orgSlug, sharedstore.OrganizationUpdate{Name: name, Slug: newSlug})
+	if err != nil || updated == nil {
+		writeWebInternal(w, r, "Failed to update organization.")
+		return
+	}
+	http.Redirect(w, r, "/manage/organizations/", http.StatusSeeOther)
+}
+
+func (h *Handler) canAdminOrganization(r *http.Request, orgSlug string) bool {
+	return h.authz == nil || h.authz.AuthorizeOrganization(r, orgSlug, auth.ScopeOrgAdmin) == nil
+}
+
+func (h *Handler) requireManageCSRF(w http.ResponseWriter, r *http.Request) bool {
+	if h.authz != nil && !h.authz.ValidateCSRF(r) {
+		writeWebForbidden(w, r)
+		return false
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +280,7 @@ type manageProject struct {
 	Platform    string
 	Status      string
 	DateCreated string
+	TeamSlug    string
 }
 
 type manageProjectTeamOption struct {
@@ -202,6 +322,9 @@ func (h *Handler) renderManageProjectsPage(w http.ResponseWriter, r *http.Reques
 
 	items := make([]manageProject, 0, len(projects))
 	for _, p := range projects {
+		if !h.canAdminOrganization(r, p.OrgSlug) {
+			continue
+		}
 		items = append(items, manageProject{
 			ID:          p.ID,
 			Slug:        p.Slug,
@@ -210,6 +333,7 @@ func (h *Handler) renderManageProjectsPage(w http.ResponseWriter, r *http.Reques
 			Platform:    p.Platform,
 			Status:      p.Status,
 			DateCreated: timeAgo(p.DateCreated),
+			TeamSlug:    p.TeamSlug,
 		})
 	}
 	teams, err := h.manageProjectTeamOptions(r)
@@ -236,8 +360,7 @@ func (h *Handler) createManagedProject(w http.ResponseWriter, r *http.Request) {
 	if h.manageGuard(w, r) == nil {
 		return
 	}
-	if h.authz != nil && !h.authz.ValidateCSRF(r) {
-		writeWebForbidden(w, r)
+	if !h.requireManageCSRF(w, r) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -272,7 +395,7 @@ func (h *Handler) createManagedProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	form.Slug = slug
-	if h.authz != nil && !h.canAdminOrgByProject(r, orgSlug) {
+	if !h.canAdminOrganization(r, orgSlug) {
 		writeWebForbidden(w, r)
 		return
 	}
@@ -314,12 +437,60 @@ func withCreateProjectError(form manageCreateProjectForm, message string) manage
 	return form
 }
 
-func (h *Handler) canAdminOrgByProject(r *http.Request, orgSlug string) bool {
-	projects, err := h.catalog.ListProjects(r.Context(), orgSlug)
-	if err != nil || len(projects) == 0 {
-		return false
+func (h *Handler) updateManagedProject(w http.ResponseWriter, r *http.Request) {
+	if h.manageGuard(w, r) == nil {
+		return
 	}
-	return h.authz == nil || h.authz.AuthorizeProject(r, projects[0].ID, auth.ScopeOrgAdmin) == nil
+	if !h.requireManageCSRF(w, r) {
+		return
+	}
+	orgSlug := strings.TrimSpace(r.PathValue("org_slug"))
+	projectSlug := strings.TrimSpace(r.PathValue("project_slug"))
+	if !h.canAdminOrganization(r, orgSlug) {
+		writeWebForbidden(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeWebBadRequest(w, r, "Invalid form")
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	newSlug := normalizeProjectSlug(r.FormValue("slug"))
+	platform := strings.TrimSpace(r.FormValue("platform"))
+	if name == "" || newSlug == "" {
+		writeWebBadRequest(w, r, "Name and slug are required")
+		return
+	}
+	updated, err := h.catalog.UpdateProject(r.Context(), orgSlug, projectSlug, sharedstore.ProjectUpdate{
+		Name:     &name,
+		Slug:     &newSlug,
+		Platform: &platform,
+	})
+	if err != nil || updated == nil {
+		writeWebInternal(w, r, "Failed to update project.")
+		return
+	}
+	http.Redirect(w, r, "/manage/projects/", http.StatusSeeOther)
+}
+
+func (h *Handler) deleteManagedProject(w http.ResponseWriter, r *http.Request) {
+	if h.manageGuard(w, r) == nil {
+		return
+	}
+	if !h.requireManageCSRF(w, r) {
+		return
+	}
+	orgSlug := strings.TrimSpace(r.PathValue("org_slug"))
+	projectSlug := strings.TrimSpace(r.PathValue("project_slug"))
+	if !h.canAdminOrganization(r, orgSlug) {
+		writeWebForbidden(w, r)
+		return
+	}
+	if err := h.catalog.DeleteProject(r.Context(), orgSlug, projectSlug); err != nil {
+		writeWebInternal(w, r, "Failed to delete project.")
+		return
+	}
+	http.Redirect(w, r, "/manage/projects/", http.StatusSeeOther)
 }
 
 func (h *Handler) manageProjectTeamOptions(r *http.Request) ([]manageProjectTeamOption, error) {
@@ -329,6 +500,9 @@ func (h *Handler) manageProjectTeamOptions(r *http.Request) ([]manageProjectTeam
 	}
 	options := []manageProjectTeamOption{}
 	for _, org := range orgs {
+		if !h.canAdminOrganization(r, org.Slug) {
+			continue
+		}
 		teams, err := h.catalog.ListTeams(r.Context(), org.Slug)
 		if err != nil {
 			return nil, err
@@ -358,75 +532,111 @@ type manageUser struct {
 }
 
 type manageUserOrgRole struct {
-	OrgSlug string
-	Role    string
+	MemberID string
+	OrgSlug  string
+	Role     string
 }
 
 type manageUsersData struct {
 	manageBase
-	Users []manageUser
+	Users      []manageUser
+	Invites    []manageInvite
+	InviteForm manageInviteForm
+}
+
+type manageInvite struct {
+	ID        string
+	OrgSlug   string
+	TeamSlug  string
+	Email     string
+	Role      string
+	Status    string
+	ExpiresAt string
+}
+
+type manageInviteOrgOption struct {
+	Slug  string
+	Teams []manageInviteTeamOption
+}
+
+type manageInviteTeamOption struct {
+	Value string
+	Label string
+}
+
+type manageInviteForm struct {
+	Email     string
+	OrgSlug   string
+	TeamValue string
+	Role      string
+	Error     string
+	InviteURL string
+	Orgs      []manageInviteOrgOption
 }
 
 func (h *Handler) manageUsersPage(w http.ResponseWriter, r *http.Request) {
 	if h.manageGuard(w, r) == nil {
 		return
 	}
+	h.renderManageUsersPage(w, r, manageInviteForm{Role: "member"})
+}
 
-	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT u.id, u.email, u.display_name, u.created_at FROM users u WHERE u.is_active = 1 ORDER BY u.created_at ASC`,
-	)
+func (h *Handler) renderManageUsersPage(w http.ResponseWriter, r *http.Request, form manageInviteForm) {
+	if h.admin == nil {
+		http.Error(w, "User management unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	orgs, err := h.catalog.ListOrganizations(r.Context())
 	if err != nil {
 		http.Error(w, "Failed to load users", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-
-	type rawUser struct {
-		id        string
-		email     string
-		name      string
-		createdAt string
-	}
-	var rawUsers []rawUser
-	for rows.Next() {
-		var u rawUser
-		var createdAt sql.NullString
-		if err := rows.Scan(&u.id, &u.email, &u.name, &createdAt); err != nil {
+	usersByID := map[string]*manageUser{}
+	invites := []manageInvite{}
+	for _, org := range orgs {
+		if !h.canAdminOrganization(r, org.Slug) {
 			continue
 		}
-		if createdAt.Valid {
-			u.createdAt = createdAt.String
+		teams, err := h.admin.ListTeams(r.Context(), org.Slug)
+		if err != nil {
+			http.Error(w, "Failed to load teams", http.StatusInternalServerError)
+			return
 		}
-		rawUsers = append(rawUsers, u)
-	}
-
-	// Load org roles per user.
-	roleRows, err := h.db.QueryContext(r.Context(),
-		`SELECT m.user_id, o.slug, m.role
-		 FROM organization_members m
-		 JOIN organizations o ON o.id = m.organization_id
-		 ORDER BY o.slug, m.role`,
-	)
-	orgRoles := map[string][]manageUserOrgRole{}
-	if err == nil {
-		defer roleRows.Close()
-		for roleRows.Next() {
-			var userID, orgSlug, role string
-			if scanErr := roleRows.Scan(&userID, &orgSlug, &role); scanErr == nil {
-				orgRoles[userID] = append(orgRoles[userID], manageUserOrgRole{OrgSlug: orgSlug, Role: role})
+		orgOption := manageInviteOrgOption{Slug: org.Slug}
+		for _, team := range teams {
+			orgOption.Teams = append(orgOption.Teams, manageInviteTeamOption{Value: projectSwitcherValue(org.Slug, team.Slug), Label: org.Slug + " / " + team.Slug})
+		}
+		form.Orgs = append(form.Orgs, orgOption)
+		members, err := h.admin.ListOrgMembers(r.Context(), org.Slug)
+		if err != nil {
+			http.Error(w, "Failed to load users", http.StatusInternalServerError)
+			return
+		}
+		for _, member := range members {
+			user := usersByID[member.UserID]
+			if user == nil {
+				user = &manageUser{ID: member.UserID, Email: member.Email, Name: member.Name, CreatedAt: timeAgo(member.CreatedAt)}
+				usersByID[member.UserID] = user
 			}
+			user.OrgRoles = append(user.OrgRoles, manageUserOrgRole{MemberID: member.ID, OrgSlug: org.Slug, Role: member.Role})
+		}
+		orgInvites, err := h.admin.ListInvites(r.Context(), org.Slug)
+		if err != nil {
+			http.Error(w, "Failed to load invitations", http.StatusInternalServerError)
+			return
+		}
+		for _, invite := range orgInvites {
+			expires := "-"
+			if invite.ExpiresAt != nil {
+				expires = timeAgo(*invite.ExpiresAt)
+			}
+			invites = append(invites, manageInvite{ID: invite.ID, OrgSlug: org.Slug, TeamSlug: invite.TeamSlug, Email: invite.Email, Role: invite.Role, Status: invite.Status, ExpiresAt: expires})
 		}
 	}
-
-	users := make([]manageUser, 0, len(rawUsers))
-	for _, u := range rawUsers {
-		users = append(users, manageUser{
-			ID:        u.id,
-			Email:     u.email,
-			Name:      u.name,
-			OrgRoles:  orgRoles[u.id],
-			CreatedAt: timeAgo(parseDBTime(u.createdAt)),
-		})
+	users := make([]manageUser, 0, len(usersByID))
+	for _, user := range usersByID {
+		users = append(users, *user)
 	}
 
 	h.render(w, "manage-users.html", manageUsersData{
@@ -437,8 +647,146 @@ func (h *Handler) manageUsersPage(w http.ResponseWriter, r *http.Request) {
 			Environment:  readSelectedEnvironment(r),
 			Environments: h.loadEnvironments(r.Context()),
 		},
-		Users: users,
+		Users:      users,
+		Invites:    invites,
+		InviteForm: form,
 	})
+}
+
+func (h *Handler) createManagedInvite(w http.ResponseWriter, r *http.Request) {
+	if h.manageGuard(w, r) == nil {
+		return
+	}
+	if !h.requireManageCSRF(w, r) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeWebBadRequest(w, r, "Invalid form")
+		return
+	}
+	form := manageInviteForm{
+		Email:     strings.TrimSpace(r.FormValue("email")),
+		OrgSlug:   strings.TrimSpace(r.FormValue("organization")),
+		TeamValue: strings.TrimSpace(r.FormValue("team")),
+		Role:      strings.TrimSpace(r.FormValue("role")),
+	}
+	if form.Email == "" || form.OrgSlug == "" {
+		form.Error = "Email and organization are required."
+		h.renderManageUsersPage(w, r, form)
+		return
+	}
+	if !validManagedOrgRole(form.Role) {
+		form.Error = "Invalid organization role."
+		h.renderManageUsersPage(w, r, form)
+		return
+	}
+	if !h.canAdminOrganization(r, form.OrgSlug) {
+		writeWebForbidden(w, r)
+		return
+	}
+	teamSlug := ""
+	if form.TeamValue != "" {
+		teamOrgSlug, parsedTeamSlug, ok := splitProjectSwitcherValue(form.TeamValue)
+		if !ok || teamOrgSlug != form.OrgSlug {
+			form.Error = "Selected team does not belong to the organization."
+			h.renderManageUsersPage(w, r, form)
+			return
+		}
+		teamSlug = parsedTeamSlug
+	}
+	principal := auth.PrincipalFromContext(r.Context())
+	if principal == nil || principal.User == nil {
+		writeWebForbidden(w, r)
+		return
+	}
+	invite, token, err := h.admin.CreateInvite(r.Context(), form.OrgSlug, form.Email, form.Role, teamSlug, principal.User.ID)
+	if err != nil || invite == nil || token == "" {
+		form.Error = "Failed to create invitation."
+		h.renderManageUsersPage(w, r, form)
+		return
+	}
+	form.InviteURL = requestmeta.Scheme(r) + "://" + requestmeta.Host(r) + "/accept-invite/" + url.PathEscape(token) + "/"
+	h.renderManageUsersPage(w, r, form)
+}
+
+func (h *Handler) updateManagedUserRole(w http.ResponseWriter, r *http.Request) {
+	if h.manageGuard(w, r) == nil {
+		return
+	}
+	if !h.requireManageCSRF(w, r) {
+		return
+	}
+	orgSlug := strings.TrimSpace(r.PathValue("org_slug"))
+	memberID := strings.TrimSpace(r.PathValue("member_id"))
+	if !h.canAdminOrganization(r, orgSlug) {
+		writeWebForbidden(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeWebBadRequest(w, r, "Invalid form")
+		return
+	}
+	role := strings.TrimSpace(r.FormValue("role"))
+	if !validManagedOrgRole(role) {
+		writeWebBadRequest(w, r, "Invalid organization role")
+		return
+	}
+	updated, err := h.admin.UpdateOrgMemberRole(r.Context(), orgSlug, memberID, role)
+	if err != nil || updated == nil {
+		writeWebBadRequest(w, r, "Unable to update member role")
+		return
+	}
+	http.Redirect(w, r, "/manage/users/", http.StatusSeeOther)
+}
+
+func (h *Handler) removeManagedUser(w http.ResponseWriter, r *http.Request) {
+	if h.manageGuard(w, r) == nil {
+		return
+	}
+	if !h.requireManageCSRF(w, r) {
+		return
+	}
+	orgSlug := strings.TrimSpace(r.PathValue("org_slug"))
+	memberID := strings.TrimSpace(r.PathValue("member_id"))
+	if !h.canAdminOrganization(r, orgSlug) {
+		writeWebForbidden(w, r)
+		return
+	}
+	removed, err := h.admin.RemoveOrgMember(r.Context(), orgSlug, memberID)
+	if err != nil || !removed {
+		writeWebBadRequest(w, r, "Unable to remove member")
+		return
+	}
+	http.Redirect(w, r, "/manage/users/", http.StatusSeeOther)
+}
+
+func (h *Handler) revokeManagedInvite(w http.ResponseWriter, r *http.Request) {
+	if h.manageGuard(w, r) == nil {
+		return
+	}
+	if !h.requireManageCSRF(w, r) {
+		return
+	}
+	orgSlug := strings.TrimSpace(r.PathValue("org_slug"))
+	if !h.canAdminOrganization(r, orgSlug) {
+		writeWebForbidden(w, r)
+		return
+	}
+	revoked, err := h.admin.RevokeInvite(r.Context(), orgSlug, strings.TrimSpace(r.PathValue("invite_id")))
+	if err != nil || !revoked {
+		writeWebBadRequest(w, r, "Unable to revoke invitation")
+		return
+	}
+	http.Redirect(w, r, "/manage/users/", http.StatusSeeOther)
+}
+
+func validManagedOrgRole(role string) bool {
+	switch role {
+	case "owner", "admin", "manager", "member":
+		return true
+	default:
+		return false
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -472,6 +820,9 @@ func (h *Handler) manageSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]manageSettingsProject, 0, len(projects))
 	for _, p := range projects {
+		if !h.canAdminOrganization(r, p.OrgSlug) {
+			continue
+		}
 		settings, sErr := h.catalog.GetProjectSettings(r.Context(), p.OrgSlug, p.Slug)
 		if sErr != nil || settings == nil {
 			items = append(items, manageSettingsProject{
@@ -550,14 +901,4 @@ func (h *Handler) manageStatusPage(w http.ResponseWriter, r *http.Request) {
 		Uptime:       time.Since(h.startedAt).Truncate(time.Second).String(),
 		StartedAt:    h.startedAt.UTC().Format(time.RFC3339),
 	})
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-func countUsers(db *sql.DB, r *http.Request) int {
-	var n int
-	_ = db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM users WHERE is_active = 1`).Scan(&n)
-	return n
 }

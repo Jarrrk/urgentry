@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -191,6 +192,10 @@ func handleRemoveOrgMember(admin controlplane.AdminStore, auth authFunc) http.Ha
 
 		ok, err := admin.RemoveOrgMember(r.Context(), orgSlug, memberID)
 		if err != nil {
+			if errors.Is(err, sqlite.ErrLastOwner) {
+				httputil.WriteError(w, http.StatusBadRequest, "Cannot remove the last owner of an organization.")
+				return
+			}
 			httputil.WriteError(w, http.StatusInternalServerError, "Failed to remove organization member.")
 			return
 		}
@@ -247,6 +252,10 @@ func handleUpdateOrgMember(admin controlplane.AdminStore, auth authFunc) http.Ha
 		}
 		rec, err := admin.UpdateOrgMemberRole(r.Context(), PathParam(r, "org_slug"), PathParam(r, "member_id"), role)
 		if err != nil {
+			if errors.Is(err, sqlite.ErrLastOwner) {
+				httputil.WriteError(w, http.StatusBadRequest, "Cannot demote the last owner of an organization.")
+				return
+			}
 			httputil.WriteError(w, http.StatusInternalServerError, "Failed to update organization member.")
 			return
 		}

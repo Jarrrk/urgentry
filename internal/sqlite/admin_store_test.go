@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -44,5 +45,30 @@ func TestAdminStoreListOrgMemberTeams(t *testing.T) {
 	}
 	if _, ok := teamsByUser["user-2"]; ok {
 		t.Fatalf("unexpected foreign-org teams: %+v", teamsByUser)
+	}
+}
+
+func TestAdminStoreProtectsLastOwnerAndRemovesByMemberID(t *testing.T) {
+	db := openStoreTestDB(t)
+	if _, err := db.Exec(`INSERT INTO organizations (id, slug, name) VALUES ('org-1', 'acme', 'Acme')`); err != nil {
+		t.Fatalf("insert org: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO users (id, email, display_name) VALUES ('user-1', 'owner@example.com', 'Owner'), ('user-2', 'admin@example.com', 'Admin')`); err != nil {
+		t.Fatalf("insert users: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO organization_members (id, organization_id, user_id, role) VALUES ('member-1', 'org-1', 'user-1', 'owner'), ('member-2', 'org-1', 'user-2', 'admin')`); err != nil {
+		t.Fatalf("insert members: %v", err)
+	}
+
+	store := NewAdminStore(db)
+	if _, err := store.UpdateOrgMemberRole(context.Background(), "acme", "member-1", "admin"); !errors.Is(err, ErrLastOwner) {
+		t.Fatalf("demote last owner error = %v, want ErrLastOwner", err)
+	}
+	if removed, err := store.RemoveOrgMember(context.Background(), "acme", "member-1"); removed || !errors.Is(err, ErrLastOwner) {
+		t.Fatalf("remove last owner removed=%v err=%v", removed, err)
+	}
+	removed, err := store.RemoveOrgMember(context.Background(), "acme", "member-2")
+	if err != nil || !removed {
+		t.Fatalf("remove by member ID removed=%v err=%v", removed, err)
 	}
 }

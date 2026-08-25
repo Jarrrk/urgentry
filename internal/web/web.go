@@ -63,6 +63,7 @@ type Handler struct {
 	quotaStore      *sqlite.QuotaStore
 	pages           map[string]*template.Template
 	login           *template.Template
+	invite          *template.Template
 	dataDir         string // data directory path for DB file stats
 	searches        analyticsservice.SearchStore
 	startedAt       time.Time // server start time for time-to-first-event
@@ -201,6 +202,7 @@ func NewHandler(deps Dependencies) (*Handler, error) {
 		pages[name] = clone
 	}
 	login := template.Must(template.New("login.html").Funcs(funcMap).ParseFS(templateFS, "templates/login.html"))
+	invite := template.Must(template.New("accept-invite.html").Funcs(funcMap).ParseFS(templateFS, "templates/accept-invite.html"))
 	control := deps.Control
 	analytics := deps.Analytics
 
@@ -237,6 +239,7 @@ func NewHandler(deps Dependencies) (*Handler, error) {
 		quotaStore:      deps.QuotaStore,
 		pages:           pages,
 		login:           login,
+		invite:          invite,
 		dataDir:         deps.DataDir,
 		searches:        analytics.Searches,
 		startedAt:       time.Now(),
@@ -268,6 +271,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /login/{$}", h.loginPage)
 	mux.HandleFunc("POST /login/{$}", h.loginAction)
+	mux.HandleFunc("GET /accept-invite/{invite_token}/{$}", h.acceptInvitePage)
+	mux.HandleFunc("POST /accept-invite/{invite_token}/{$}", h.acceptInviteAction)
 	wrap := func(handler http.Handler) http.Handler {
 		handler = withPageRequestState(handler)
 		if h.authz == nil {
@@ -365,9 +370,17 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/{$}", wrap(redirectAlias("/manage/")))
 	mux.Handle("GET /manage/{$}", wrap(http.HandlerFunc(h.manageDashboardPage)))
 	mux.Handle("GET /manage/organizations/{$}", wrap(http.HandlerFunc(h.manageOrganizationsPage)))
+	mux.Handle("POST /manage/organizations/{$}", wrap(http.HandlerFunc(h.createManagedOrganization)))
+	mux.Handle("POST /manage/organizations/{org_slug}/update", wrap(http.HandlerFunc(h.updateManagedOrganization)))
 	mux.Handle("GET /manage/projects/{$}", wrap(http.HandlerFunc(h.manageProjectsPage)))
 	mux.Handle("POST /manage/projects/{$}", wrap(http.HandlerFunc(h.createManagedProject)))
+	mux.Handle("POST /manage/projects/{org_slug}/{project_slug}/update", wrap(http.HandlerFunc(h.updateManagedProject)))
+	mux.Handle("POST /manage/projects/{org_slug}/{project_slug}/delete", wrap(http.HandlerFunc(h.deleteManagedProject)))
 	mux.Handle("GET /manage/users/{$}", wrap(http.HandlerFunc(h.manageUsersPage)))
+	mux.Handle("POST /manage/users/invite", wrap(http.HandlerFunc(h.createManagedInvite)))
+	mux.Handle("POST /manage/users/{org_slug}/{member_id}/role", wrap(http.HandlerFunc(h.updateManagedUserRole)))
+	mux.Handle("POST /manage/users/{org_slug}/{member_id}/remove", wrap(http.HandlerFunc(h.removeManagedUser)))
+	mux.Handle("POST /manage/invites/{org_slug}/{invite_id}/revoke", wrap(http.HandlerFunc(h.revokeManagedInvite)))
 	mux.Handle("GET /manage/settings/{$}", wrap(http.HandlerFunc(h.manageSettingsPage)))
 	mux.Handle("GET /manage/status/{$}", wrap(http.HandlerFunc(h.manageStatusPage)))
 	mux.Handle("GET /settings/{$}", wrap(http.HandlerFunc(h.settingsPage)))

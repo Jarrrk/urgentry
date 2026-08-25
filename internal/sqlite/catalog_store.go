@@ -28,6 +28,46 @@ func (s *CatalogStore) GetOrganization(ctx context.Context, slug string) (*store
 	return GetOrganization(ctx, s.db, slug)
 }
 
+func (s *CatalogStore) CreateOrganization(ctx context.Context, input store.OrganizationCreateInput, ownerUserID string) (*store.Organization, error) {
+	slug := strings.TrimSpace(input.Slug)
+	name := strings.TrimSpace(input.Name)
+	ownerUserID = strings.TrimSpace(ownerUserID)
+	if slug == "" || name == "" || ownerUserID == "" {
+		return nil, nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	orgID := id.New()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO organizations (id, slug, name, created_at) VALUES (?, ?, ?, ?)`,
+		orgID, slug, name, now,
+	); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO organization_members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'owner', ?)`,
+		id.New(), orgID, ownerUserID, now,
+	); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO teams (id, organization_id, slug, name, created_at) VALUES (?, ?, 'default', 'Default', ?)`,
+		id.New(), orgID, now,
+	); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetOrganization(ctx, slug)
+}
+
 func (s *CatalogStore) UpdateOrganization(ctx context.Context, slug string, update store.OrganizationUpdate) (*store.Organization, error) {
 	return UpdateOrganization(ctx, s.db, slug, update)
 }
@@ -274,60 +314,83 @@ func (s *CatalogStore) DeleteProject(ctx context.Context, orgSlug, projectSlug s
 		}
 	}()
 
-	// Cascade delete all project-scoped rows. Order matters for FK constraints:
-	// children first, then the project row itself.
+	// Delete rows whose project ownership is indirect before their parent rows.
+	indirectDeletes := []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM alert_history WHERE rule_id IN (SELECT id FROM alert_rules WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM issue_subscriptions WHERE group_id IN (SELECT id FROM groups WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM issue_bookmarks WHERE group_id IN (SELECT id FROM groups WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM replay_timeline_items WHERE manifest_id IN (SELECT id FROM replay_manifests WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM replay_assets WHERE manifest_id IN (SELECT id FROM replay_manifests WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM profile_samples WHERE manifest_id IN (SELECT id FROM profile_manifests WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM profile_stack_frames WHERE manifest_id IN (SELECT id FROM profile_manifests WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM profile_stacks WHERE manifest_id IN (SELECT id FROM profile_manifests WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM profile_frames WHERE manifest_id IN (SELECT id FROM profile_manifests WHERE project_id = ?)`, []any{pid}},
+		{`DELETE FROM profile_threads WHERE manifest_id IN (SELECT id FROM profile_manifests WHERE project_id = ?)`, []any{pid}},
+	}
+	for _, item := range indirectDeletes {
+		if _, execErr := tx.ExecContext(ctx, item.query, item.args...); execErr != nil && !isNoSuchTable(execErr) {
+			err = execErr
+			return err
+		}
+	}
+
+	// Cascade delete every table with a project_id column. Order matters for
+	// tables which also reference another project-scoped row.
 	cascadeTables := []string{
-		"telemetry_retention_policies",
-		"project_replay_configs",
-		"replay_timeline_items",
-		"replay_assets",
-		"replay_manifests",
-		"profile_samples",
-		"profile_stack_frames",
-		"profile_stacks",
-		"profile_frames",
-		"profile_threads",
-		"profile_manifests",
-		"native_crashes",
 		"native_crash_images",
 		"native_symbol_sources",
-		"spans",
-		"transactions",
 		"monitor_checkins",
-		"monitors",
-		"outcomes",
-		"release_sessions",
-		"debug_files",
-		"event_attachments",
-		"artifacts",
-		"issue_subscriptions",
-		"issue_bookmarks",
+		"uptime_check_results",
 		"issue_activity",
 		"issue_comments",
-		"ownership_rules",
+		"issue_autofix_runs",
+		"anomaly_events",
+		"notification_deliveries",
+		"profile_manifests",
+		"replay_manifests",
+		"native_crashes",
+		"debug_files",
+		"event_attachments",
+		"spans",
+		"transactions",
 		"events",
 		"groups",
-		"project_keys",
-		"alert_history",
-		"alert_rules",
-		"user_feedback",
-		"release_deploys",
-		"release_commits",
-		"releases",
-		"notification_deliveries",
-		"notification_outbox",
-		"project_automation_tokens",
-		"project_memberships",
-		"data_forwarding_configs",
-		"code_mappings",
-		"sampling_rules",
-		"uptime_check_results",
+		"monitors",
 		"uptime_monitors",
 		"metric_alert_rules",
-		"anomaly_events",
+		"alert_rules",
+		"artifacts",
+		"auth_audit_logs",
+		"backfill_runs",
+		"code_mappings",
+		"data_forwarding_configs",
 		"inbound_filters",
+		"integration_configs",
+		"jobs",
+		"metric_buckets",
+		"notification_outbox",
+		"operator_audit_logs",
+		"outcomes",
+		"ownership_rules",
+		"preprod_artifacts",
+		"project_automation_tokens",
 		"project_environments",
+		"project_hooks",
+		"project_keys",
+		"project_memberships",
+		"project_replay_configs",
+		"project_symbol_sources",
 		"project_teams",
+		"quota_rate_limits",
+		"release_sessions",
+		"replay_deletion_jobs",
+		"sampling_rules",
+		"telemetry_archives",
+		"telemetry_retention_policies",
+		"user_feedback",
 	}
 	for _, table := range cascadeTables {
 		if _, execErr := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE project_id = ?", pid); execErr != nil {

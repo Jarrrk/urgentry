@@ -9,6 +9,26 @@
 
 <div class="manage-body">
   <div class="settings-section">
+    <div class="section-header">Invite User</div>
+    {{if .InviteForm.Error}}<div class="form-error" role="alert">{{.InviteForm.Error}}</div>{{end}}
+    {{if .InviteForm.InviteURL}}
+    <div class="manage-invite-link" role="status">
+      <strong>Invitation created.</strong> Copy this link now; the token is only shown once.
+      <input type="text" value="{{.InviteForm.InviteURL}}" readonly onclick="this.select()">
+    </div>
+    {{end}}
+    <form method="post" action="/manage/users/invite" class="settings-form manage-user-form">
+      <div class="settings-form-grid">
+        <label class="settings-form-field"><span>Email</span><input type="email" name="email" value="{{.InviteForm.Email}}" required></label>
+        <label class="settings-form-field"><span>Organization</span><select name="organization" required>{{range .InviteForm.Orgs}}<option value="{{.Slug}}" {{if eq .Slug $.InviteForm.OrgSlug}}selected{{end}}>{{.Slug}}</option>{{end}}</select></label>
+        <label class="settings-form-field"><span>Team (optional)</span><select name="team"><option value="">No team</option>{{range .InviteForm.Orgs}}{{range .Teams}}<option value="{{.Value}}" {{if eq .Value $.InviteForm.TeamValue}}selected{{end}}>{{.Label}}</option>{{end}}{{end}}</select></label>
+        <label class="settings-form-field"><span>Role</span><select name="role"><option value="member" {{if eq .InviteForm.Role "member"}}selected{{end}}>Member</option><option value="manager" {{if eq .InviteForm.Role "manager"}}selected{{end}}>Manager</option><option value="admin" {{if eq .InviteForm.Role "admin"}}selected{{end}}>Admin</option><option value="owner" {{if eq .InviteForm.Role "owner"}}selected{{end}}>Owner</option></select></label>
+      </div>
+      <div class="settings-form-actions"><button type="submit" class="btn btn-primary">Create invitation</button></div>
+    </form>
+  </div>
+
+  <div class="settings-section">
     <div class="section-header">Users</div>
     <table class="events-table">
       <thead>
@@ -17,6 +37,7 @@
           <th>Name</th>
           <th>Roles</th>
           <th>Joined</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -28,18 +49,33 @@
             <td>
               {{if .OrgRoles}}
                 {{range .OrgRoles}}
-                  <span class="manage-role-badge manage-role-{{.Role}}">{{.OrgSlug}}: {{.Role}}</span>
+                  <form method="post" action="/manage/users/{{.OrgSlug}}/{{.MemberID}}/role" class="manage-role-form">
+                    <span class="mono">{{.OrgSlug}}</span>
+                    <select name="role" aria-label="Role in {{.OrgSlug}}"><option value="owner" {{if eq .Role "owner"}}selected{{end}}>Owner</option><option value="admin" {{if eq .Role "admin"}}selected{{end}}>Admin</option><option value="manager" {{if eq .Role "manager"}}selected{{end}}>Manager</option><option value="member" {{if eq .Role "member"}}selected{{end}}>Member</option></select>
+                    <button type="submit" class="btn btn-sm">Save</button>
+                  </form>
                 {{end}}
               {{else}}
                 <span class="manage-role-badge manage-role-none">no org</span>
               {{end}}
             </td>
             <td>{{.CreatedAt}}</td>
+            <td>{{range .OrgRoles}}<form method="post" action="/manage/users/{{.OrgSlug}}/{{.MemberID}}/remove" onsubmit="return confirm('Remove this user from {{.OrgSlug}}?');"><button type="submit" class="btn btn-sm manage-danger">Remove from {{.OrgSlug}}</button></form>{{end}}</td>
           </tr>
           {{end}}
         {{else}}
-          <tr><td colspan="4">No users found.</td></tr>
+          <tr><td colspan="5">No users found.</td></tr>
         {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="settings-section">
+    <div class="section-header">Invitations</div>
+    <table class="events-table">
+      <thead><tr><th>Email</th><th>Organization</th><th>Team</th><th>Role</th><th>Status</th><th>Expires</th><th>Actions</th></tr></thead>
+      <tbody>
+        {{if .Invites}}{{range .Invites}}<tr><td>{{.Email}}</td><td class="mono">{{.OrgSlug}}</td><td class="mono">{{if .TeamSlug}}{{.TeamSlug}}{{else}}-{{end}}</td><td>{{.Role}}</td><td>{{.Status}}</td><td>{{.ExpiresAt}}</td><td>{{if eq .Status "pending"}}<form method="post" action="/manage/invites/{{.OrgSlug}}/{{.ID}}/revoke"><button type="submit" class="btn btn-sm manage-danger">Revoke</button></form>{{else}}-{{end}}</td></tr>{{end}}{{else}}<tr><td colspan="7">No invitations found.</td></tr>{{end}}
       </tbody>
     </table>
   </div>
@@ -93,6 +129,13 @@
   padding: 20px;
   margin-bottom: 20px;
 }
+.manage-user-form { margin-top: 16px; }
+.manage-role-form { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.manage-role-form select { min-width: 100px; }
+.manage-danger { color: var(--error, #f85149); }
+.manage-invite-link { margin: 12px 0; padding: 12px; border: 1px solid var(--accent, #7C5CBF); border-radius: 6px; }
+.manage-invite-link input { display: block; width: 100%; margin-top: 8px; font-family: var(--font-mono, monospace); }
+.form-error { margin-top: 12px; padding: 10px 12px; border: 1px solid rgba(248,81,73,.25); border-radius: 6px; background: rgba(248,81,73,.12); color: #f85149; font-size: 13px; }
 .manage-role-badge {
   display: inline-block;
   padding: 2px 8px;

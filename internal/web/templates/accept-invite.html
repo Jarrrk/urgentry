@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}} — Urgentry</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=26">
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <section class="card auth-card">
+      <p class="auth-eyebrow">Urgentry</p>
+      {{if .Success}}
+      <h1 class="auth-title">Invitation accepted</h1>
+      <p class="auth-copy">Your account is ready. You can now sign in.</p>
+      <a class="btn btn-primary auth-submit" href="/login/">Sign in</a>
+      {{else}}
+      <h1 class="auth-title">Accept invitation</h1>
+      <p class="auth-copy">Create your Urgentry account to join the organization.</p>
+      {{if .Error}}<div class="auth-error" role="alert">{{.Error}}</div>{{end}}
+      <form method="post" action="/accept-invite/{{.Token}}/" class="auth-form">
+        <div class="auth-field">
+          <label class="auth-label" for="display_name">Name</label>
+          <input class="auth-input" id="display_name" name="display_name" type="text" autocomplete="name" required>
+        </div>
+        <div class="auth-field">
+          <label class="auth-label" for="password">Password</label>
+          <input class="auth-input" id="password" name="password" type="password" minlength="12" autocomplete="new-password" required>
+        </div>
+        <button class="btn btn-primary auth-submit" type="submit">Accept invitation</button>
+      </form>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>

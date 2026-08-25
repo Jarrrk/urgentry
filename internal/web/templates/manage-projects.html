@@ -79,7 +79,23 @@
             <td>{{if .Platform}}{{.Platform}}{{else}}-{{end}}</td>
             <td><span class="issue-status-badge {{.Status}}">{{if .Status}}{{.Status}}{{else}}active{{end}}</span></td>
             <td>{{.DateCreated}}</td>
-            <td><a class="btn btn-sm" href="/settings/project/{{.Slug}}/general/">Open settings</a></td>
+            <td>
+              <div class="manage-actions">
+                <a class="btn btn-sm" href="/settings/project/{{.Slug}}/general/" onclick="urgentrySetCookie('urgentry_project', '{{.OrgSlug}}/{{.Slug}}')">Settings</a>
+                <details class="manage-details">
+                  <summary class="btn btn-sm">Edit</summary>
+                  <form method="post" action="/manage/projects/{{.OrgSlug}}/{{.Slug}}/update" class="manage-inline-form">
+                    <input type="text" name="name" value="{{.Name}}" aria-label="Project name" required>
+                    <input type="text" name="slug" value="{{.Slug}}" aria-label="Project slug" required>
+                    <input type="text" name="platform" value="{{.Platform}}" aria-label="Platform">
+                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                  </form>
+                </details>
+                <form method="post" action="/manage/projects/{{.OrgSlug}}/{{.Slug}}/delete" onsubmit="return confirm('Delete {{.Name}} and all of its stored data?');">
+                  <button type="submit" class="btn btn-sm manage-danger">Delete</button>
+                </form>
+              </div>
+            </td>
           </tr>
           {{end}}
         {{else}}
@@ -150,5 +166,10 @@
   color: var(--error, #f85149);
   font-size: 13px;
 }
+.manage-actions { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; }
+.manage-details summary { list-style: none; cursor: pointer; }
+.manage-inline-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; min-width: 420px; }
+.manage-inline-form input { min-width: 120px; }
+.manage-danger { color: var(--error, #f85149); }
 </style>
 {{end}}

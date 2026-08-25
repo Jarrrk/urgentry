@@ -853,6 +853,16 @@ func TestKeyStore_LookupAndDefault(t *testing.T) {
 	if pubKey == "" {
 		t.Fatal("expected non-empty public key")
 	}
+	var teamID, projectTeamID string
+	if err := db.QueryRowContext(ctx, `SELECT id FROM teams WHERE organization_id = 'default-org' AND slug = 'default'`).Scan(&teamID); err != nil {
+		t.Fatalf("default team: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT team_id FROM projects WHERE id = 'default-project'`).Scan(&projectTeamID); err != nil {
+		t.Fatalf("default project team: %v", err)
+	}
+	if teamID == "" || projectTeamID != teamID {
+		t.Fatalf("default team=%q project team=%q", teamID, projectTeamID)
+	}
 
 	// Calling again should return the same key.
 	pubKey2, err := EnsureDefaultKey(ctx, db)
@@ -902,6 +912,30 @@ func TestKeyStore_LookupAndDefault(t *testing.T) {
 	}
 	if key.Status != "disabled" {
 		t.Errorf("Status after disable = %q, want 'disabled'", key.Status)
+	}
+}
+
+func TestEnsureDefaultKeyRepairsMissingDefaultTeam(t *testing.T) {
+	db := openStoreTestDB(t)
+	ctx := context.Background()
+	if _, err := EnsureDefaultKey(ctx, db); err != nil {
+		t.Fatalf("EnsureDefaultKey: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE projects SET team_id = NULL WHERE id = 'default-project'`); err != nil {
+		t.Fatalf("clear default project team: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM teams WHERE organization_id = 'default-org' AND slug = 'default'`); err != nil {
+		t.Fatalf("delete default team: %v", err)
+	}
+	if _, err := EnsureDefaultKey(ctx, db); err != nil {
+		t.Fatalf("repair default team: %v", err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM projects p JOIN teams t ON t.id = p.team_id
+		 WHERE p.id = 'default-project' AND t.organization_id = 'default-org' AND t.slug = 'default'`,
+	).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("repaired default project team count=%d err=%v", count, err)
 	}
 }
 

@@ -281,6 +281,9 @@ func EnsureDefaultKey(ctx context.Context, db *sql.DB) (string, error) {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(0x757267656e747279)); err != nil {
 		return "", fmt.Errorf("acquire default key lock: %w", err)
 	}
+	if err := ensureDefaultTeam(ctx, tx); err != nil {
+		return "", err
+	}
 
 	var count int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM project_keys`).Scan(&count); err != nil {
@@ -290,6 +293,9 @@ func EnsureDefaultKey(ctx context.Context, db *sql.DB) (string, error) {
 		var publicKey string
 		if err := tx.QueryRowContext(ctx, `SELECT public_key FROM project_keys ORDER BY created_at ASC LIMIT 1`).Scan(&publicKey); err != nil {
 			return "", fmt.Errorf("load existing project key: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("commit default team repair: %w", err)
 		}
 		return publicKey, nil
 	}
@@ -308,6 +314,9 @@ func EnsureDefaultKey(ctx context.Context, db *sql.DB) (string, error) {
 	); err != nil {
 		return "", fmt.Errorf("ensure default project: %w", err)
 	}
+	if err := ensureDefaultTeam(ctx, tx); err != nil {
+		return "", err
+	}
 
 	publicKey := generateID()
 	if _, err := tx.ExecContext(ctx,
@@ -321,6 +330,24 @@ func EnsureDefaultKey(ctx context.Context, db *sql.DB) (string, error) {
 		return "", fmt.Errorf("commit default key tx: %w", err)
 	}
 	return publicKey, nil
+}
+
+func ensureDefaultTeam(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO teams (id, organization_id, slug, name)
+		 SELECT 'default-team', id, 'default', 'Default'
+		 FROM organizations
+		 WHERE id = 'default-org'
+		 ON CONFLICT (organization_id, slug) DO NOTHING`); err != nil {
+		return fmt.Errorf("ensure default team: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE projects
+		 SET team_id = (SELECT id FROM teams WHERE organization_id = 'default-org' AND slug = 'default')
+		 WHERE id = 'default-project' AND organization_id = 'default-org' AND team_id IS NULL`); err != nil {
+		return fmt.Errorf("assign default project team: %w", err)
+	}
+	return nil
 }
 
 // AuthenticateUserPassword validates local credentials.

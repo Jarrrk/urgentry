@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/feather-icons/dist/feather.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=26">
+  <link rel="stylesheet" href="/static/style.css?v=27">
   <script src="https://unpkg.com/htmx.org@2.0.0"></script>
   <script>
     // Apply saved theme immediately (before paint) to avoid flash.
@@ -16,6 +16,9 @@
       var saved = localStorage.getItem('urgentry_theme');
       if (saved) {
         document.documentElement.setAttribute('data-theme', saved);
+      }
+      if (localStorage.getItem('urgentry_content_width') === 'full') {
+        document.documentElement.setAttribute('data-content-width', 'full');
       }
     })();
 
@@ -336,6 +339,19 @@
       window.location.reload();
     }
 
+    function toggleContentWidth() {
+      var full = document.documentElement.getAttribute('data-content-width') === 'full';
+      if (full) {
+        document.documentElement.removeAttribute('data-content-width');
+        localStorage.setItem('urgentry_content_width', 'fixed');
+      } else {
+        document.documentElement.setAttribute('data-content-width', 'full');
+        localStorage.setItem('urgentry_content_width', 'full');
+      }
+      var button = document.getElementById('contentWidthToggle');
+      if (button) button.setAttribute('aria-pressed', full ? 'false' : 'true');
+    }
+
     // -----------------------------------------------------------------------
     // Compact Mode
     // -----------------------------------------------------------------------
@@ -595,10 +611,7 @@
           projects.forEach(function(project) {
             var option = document.createElement('option');
             option.value = project.value;
-            option.textContent = project.orgSlug + ' / ' + project.slug;
-            if (project.name && project.name !== project.slug) {
-              option.textContent += ' - ' + project.name;
-            }
+            option.textContent = project.orgSlug + ' / ' + (project.name || project.slug);
             if (project.value === data.selected) {
               option.selected = true;
               if (settings && project.settingsUrl) settings.href = project.settingsUrl;
@@ -614,6 +627,11 @@
           form.hidden = true;
         });
     })();
+
+    var contentWidthToggle = document.getElementById('contentWidthToggle');
+    if (contentWidthToggle) {
+      contentWidthToggle.setAttribute('aria-pressed', document.documentElement.getAttribute('data-content-width') === 'full' ? 'true' : 'false');
+    }
 
     // Initialize Feather Icons
     if (typeof feather !== 'undefined') feather.replace();
@@ -683,6 +701,10 @@
   </a>
   <div class="sidebar-bottom">
     <div class="sidebar-divider"></div>
+    <button class="nav-item" id="contentWidthToggle" onclick="toggleContentWidth()" aria-label="Toggle content width" aria-pressed="false">
+      <i data-feather="maximize-2"></i>
+      <span class="nav-label">Content width</span>
+    </button>
     <button class="nav-item" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle theme">
       <i data-feather="moon"></i>
       <span class="nav-label">Theme</span>

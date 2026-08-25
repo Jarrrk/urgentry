@@ -313,6 +313,55 @@ func TestManageProjectsCreatesProjectWithDefaultKey(t *testing.T) {
 	}
 }
 
+func TestManageProjectsUsesFreeformPlatformAndNoMissingTeamMessage(t *testing.T) {
+	srv, _, sessionToken, csrf := setupAuthorizedTestServerWithDeps(t, func(_ *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
+		return deps
+	})
+	defer srv.Close()
+
+	resp := sessionRequest(t, http.DefaultClient, http.MethodGet, srv.URL+"/manage/projects/", sessionToken, csrf, "", nil)
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `input type="text" name="platform"`) {
+		t.Fatal("create project platform is not a freeform text input")
+	}
+	if strings.Contains(body, "Create a team before adding another project") {
+		t.Fatal("create project page still shows the missing-team blocker")
+	}
+}
+
+func TestSettingsPageHonorsSelectedProject(t *testing.T) {
+	srv, _, sessionToken, _ := setupAuthorizedTestServerWithDeps(t, func(db *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
+		if _, err := db.Exec(`INSERT INTO projects (id, organization_id, slug, name, platform, status) VALUES ('mobile-proj', 'test-org', 'mobile-app', 'Mobile App', 'lua', 'active')`); err != nil {
+			t.Fatalf("seed selected project: %v", err)
+		}
+		return deps
+	})
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/settings/", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: "urgentry_session", Value: sessionToken})
+	req.AddCookie(&http.Cookie{Name: selectedProjectCookie, Value: "test-org%2Fmobile-app"})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET settings: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", resp.StatusCode, body)
+	}
+	for _, want := range []string{`name="name" value="Mobile App"`, `name="platform" value="lua"`, `<td class="mono">mobile-app</td>`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("selected project settings missing %q", want)
+		}
+	}
+}
+
 func TestManageProjectsUpdatesAndDeletesProject(t *testing.T) {
 	srv, db, sessionToken, csrf := setupAuthorizedTestServerWithDeps(t, func(db *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
 		if _, err := db.Exec(`INSERT INTO teams (id, organization_id, slug, name) VALUES ('team-1', 'test-org', 'backend', 'Backend')`); err != nil {

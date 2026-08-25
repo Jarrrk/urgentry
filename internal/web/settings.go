@@ -114,15 +114,23 @@ func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request) {
 	dsn := ""
 	currentProject := overview.Project
 	var currentSettings *sharedstore.ProjectSettings
-	var catalogProjects []sharedstore.Project
 	if h.catalog != nil {
-		catalogProjects, err = h.catalog.ListProjects(ctx, "")
+		catalogProjects, err := h.catalog.ListProjects(ctx, "")
 		if err != nil {
 			writeWebInternal(w, r, "Failed to load settings.")
 			return
 		}
-		if len(catalogProjects) > 0 {
-			currentProject = &catalogProjects[0]
+		scope, err := h.defaultPageScope(ctx)
+		if err != nil {
+			writeWebInternal(w, r, "Failed to resolve selected project.")
+			return
+		}
+		currentProject = nil
+		for i := range catalogProjects {
+			if catalogProjects[i].ID == scope.ProjectID {
+				currentProject = &catalogProjects[i]
+				break
+			}
 		}
 	}
 	if currentProject != nil {
@@ -169,39 +177,6 @@ func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeWebInternal(w, r, "Failed to load settings.")
 			return
-		}
-		if len(projectKeys) == 0 {
-			for _, project := range catalogProjects {
-				keys, err := h.catalog.ListProjectKeys(ctx, project.OrgSlug, project.Slug)
-				if err != nil {
-					writeWebInternal(w, r, "Failed to load settings.")
-					return
-				}
-				if len(keys) == 0 {
-					continue
-				}
-				currentProject = &project
-				projectName = project.Name
-				projectSlug = project.Slug
-				if project.Platform != "" {
-					platform = project.Platform
-				}
-				if project.Status != "" {
-					projectStatus = project.Status
-				}
-				projectKeys = keys
-				currentSettings, err = h.catalog.GetProjectSettings(ctx, project.OrgSlug, project.Slug)
-				if err != nil {
-					writeWebInternal(w, r, "Failed to load settings.")
-					return
-				}
-				if currentSettings != nil {
-					eventRetentionDays = currentSettings.EventRetentionDays
-					attachmentRetentionDays = currentSettings.AttachmentRetentionDays
-					debugRetentionDays = currentSettings.DebugFileRetentionDays
-				}
-				break
-			}
 		}
 	}
 	keys := make([]settingsKey, 0, len(projectKeys))

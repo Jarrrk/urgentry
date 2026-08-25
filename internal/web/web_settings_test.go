@@ -234,14 +234,8 @@ func TestSettingsPage(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()
 
-	// Seed a project and key so the settings page has DSN to display.
-	if _, err := db.Exec(`INSERT OR IGNORE INTO organizations (id, slug, name) VALUES ('org-1', 'urgentry-org', 'Urgentry')`); err != nil {
-		t.Fatalf("seed settings org: %v", err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO projects (id, organization_id, slug, name, platform, status) VALUES ('proj-1', 'org-1', 'default', 'Default Project', 'go', 'active')`); err != nil {
-		t.Fatalf("seed settings project: %v", err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO project_keys (id, project_id, public_key, status, label) VALUES ('key-1', 'proj-1', 'abc123testkey', 'active', 'Default')`); err != nil {
+	// Seed a key for the selected default project so the settings page has a DSN to display.
+	if _, err := db.Exec(`INSERT OR IGNORE INTO project_keys (id, project_id, public_key, status, label) VALUES ('key-1', 'test-proj', 'abc123testkey', 'active', 'Default')`); err != nil {
 		t.Fatalf("seed settings key: %v", err)
 	}
 
@@ -260,7 +254,7 @@ func TestSettingsPage(t *testing.T) {
 	if !strings.Contains(body, "abc123testkey") {
 		t.Error("expected DSN key in settings page")
 	}
-	if !strings.Contains(body, "abc123testkey@") || !strings.Contains(body, "/"+dsn.PublicProjectID("proj-1")) {
+	if !strings.Contains(body, "abc123testkey@") || !strings.Contains(body, "/"+dsn.PublicProjectID("test-proj")) {
 		t.Error("expected settings DSN to use the numeric SDK project ID")
 	}
 	if strings.Contains(body, "/api/proj-1/store/") {

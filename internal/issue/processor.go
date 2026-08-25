@@ -25,6 +25,12 @@ type ReleaseEnsurer interface {
 	EnsureRelease(ctx context.Context, orgID, version string) error
 }
 
+// ReleaseOrderer compares opaque release identifiers by when Urgentry first
+// observed them. This works for commit hashes as well as semantic versions.
+type ReleaseOrderer interface {
+	ReleaseIsAtOrAfter(ctx context.Context, ownerID, candidate, baseline string) (bool, error)
+}
+
 // SourceMapResolver resolves minified JS source locations to original source
 // using uploaded source maps. Implemented by sourcemap.Resolver.
 type SourceMapResolver interface {
@@ -108,6 +114,9 @@ func (p *Processor) process(ctx context.Context, projectID string, raw []byte, e
 	if err != nil {
 		return nil, fmt.Errorf("normalize: %w", err)
 	}
+	if strings.TrimSpace(evt.Release) == "" {
+		evt.Release = strings.TrimSpace(evt.Tags["commit"])
+	}
 
 	if evt.EventType() == "transaction" {
 		if strings.TrimSpace(eventRowID) != "" {
@@ -149,6 +158,15 @@ func (p *Processor) process(ctx context.Context, projectID string, raw []byte, e
 	}
 	groupID := id.New()
 	now := time.Now().UTC()
+	releaseVersion := strings.TrimSpace(evt.Release)
+	if releaseVersion != "" && p.Releases != nil {
+		// Register the release before loading the group. A newly observed release
+		// binds issues waiting for "next release", so this very first event can be
+		// evaluated against the correct target release.
+		if err := p.Releases.EnsureRelease(ctx, projectID, releaseVersion); err != nil {
+			log.Warn().Err(err).Str("release", releaseVersion).Msg("failed to ensure release record")
+		}
+	}
 
 	// 6. Upsert the group (this may merge with an existing group)
 	group := &Group{
@@ -182,6 +200,21 @@ func (p *Processor) process(ctx context.Context, projectID string, raw []byte, e
 	}
 	isNew := existing == nil
 	isRegression := existing != nil && existing.Status == "resolved"
+	if isRegression && existing.ResolutionSubstatus == "next_release" {
+		isRegression = false
+		targetRelease := strings.TrimSpace(existing.ResolvedInRelease)
+		if targetRelease != "" && releaseVersion != "" {
+			isRegression = releaseVersion == targetRelease
+			if orderer, ok := p.Releases.(ReleaseOrderer); ok {
+				atOrAfter, orderErr := orderer.ReleaseIsAtOrAfter(ctx, projectID, releaseVersion, targetRelease)
+				if orderErr != nil {
+					log.Warn().Err(orderErr).Str("release", releaseVersion).Str("resolved_in_release", targetRelease).Msg("failed to compare release order")
+				} else {
+					isRegression = atOrAfter
+				}
+			}
+		}
+	}
 
 	groupUpsertStarted := time.Now()
 	err = p.Groups.UpsertGroup(ctx, group)
@@ -224,20 +257,7 @@ func (p *Processor) process(ctx context.Context, projectID string, raw []byte, e
 		}
 	}
 
-	// 7. Track release if present
-	releaseVersion := ""
-	if evt.Release != "" {
-		releaseVersion = evt.Release
-		if p.Releases != nil {
-			// Use projectID as a stand-in for orgID since events don't carry org info.
-			// In a full deployment the project->org mapping would be resolved here.
-			if err := p.Releases.EnsureRelease(ctx, projectID, evt.Release); err != nil {
-				log.Warn().Err(err).Str("release", evt.Release).Msg("failed to ensure release record")
-			}
-		}
-	}
-
-	// 8. Extract user identifier
+	// 7. Extract user identifier
 	userID := ""
 	if evt.User != nil {
 		userID = evt.User.ID
@@ -249,7 +269,7 @@ func (p *Processor) process(ctx context.Context, projectID string, raw []byte, e
 		}
 	}
 
-	// 9. Save event
+	// 8. Save event
 	storedEvt := &store.StoredEvent{
 		ID:               internalEventID,
 		ProjectID:        projectID,

@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"urgentry/internal/store"
@@ -200,6 +201,11 @@ func applyCodeMappings(groups []exceptionGroup, mappings []*store.CodeMapping) {
 				// Normalize double slashes
 				repoPath = strings.ReplaceAll(repoPath, "//", "/")
 				repoPath = strings.TrimPrefix(repoPath, "/")
+				pathSegments := strings.Split(repoPath, "/")
+				for i := range pathSegments {
+					pathSegments[i] = url.PathEscape(pathSegments[i])
+				}
+				repoPath = strings.Join(pathSegments, "/")
 
 				repoURL := strings.TrimSuffix(m.RepoURL, "/")
 				branch := m.DefaultBranch

@@ -244,32 +244,28 @@ func TestStackTraceFromPayload_SkipsEmptyFrames(t *testing.T) {
 
 func TestApplyCodeMappingsUsesRepositoryProvider(t *testing.T) {
 	tests := []struct {
-		name     string
-		provider string
-		repoURL  string
-		want     string
+		name, provider, repoURL, stackRoot, sourceRoot, branch, frameFile, want string
+		lineNo                                                                  int
 	}{
 		{
-			name:     "github",
-			provider: store.CodeMappingProviderGitHub,
-			repoURL:  "https://github.com/highlife/game",
-			want:     "https://github.com/highlife/game/blob/main/resources/client/errors.lua#L42",
+			name: "github", provider: store.CodeMappingProviderGitHub, repoURL: "https://github.com/highlife/game",
+			stackRoot: "/srv/highlife/", sourceRoot: "resources/", branch: "main", frameFile: "/srv/highlife/client/errors.lua", lineNo: 42,
+			want: "https://github.com/highlife/game/blob/main/resources/client/errors.lua#L42",
 		},
 		{
-			name:     "forgejo",
-			provider: store.CodeMappingProviderForgejo,
-			repoURL:  "https://forge.hlf.is/highlife/game",
-			want:     "https://forge.hlf.is/highlife/game/src/branch/main/resources/client/errors.lua#L42",
+			name: "forgejo", provider: store.CodeMappingProviderForgejo, repoURL: "https://forge.hlf.is/HighLife/core",
+			stackRoot: "highlife/", sourceRoot: "[highlife]/highlife/", branch: "master", frameFile: "highlife/client/core/error.lua", lineNo: 8,
+			want: "https://forge.hlf.is/HighLife/core/src/branch/master/%5Bhighlife%5D/highlife/client/core/error.lua#L8",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			groups := []exceptionGroup{{Frames: []richFrame{{File: "/srv/highlife/client/errors.lua", LineNo: 42}}}}
+			groups := []exceptionGroup{{Frames: []richFrame{{File: tt.frameFile, LineNo: tt.lineNo}}}}
 			applyCodeMappings(groups, []*store.CodeMapping{{
-				StackRoot:     "/srv/highlife/",
-				SourceRoot:    "resources/",
-				DefaultBranch: "main",
+				StackRoot:     tt.stackRoot,
+				SourceRoot:    tt.sourceRoot,
+				DefaultBranch: tt.branch,
 				RepoURL:       tt.repoURL,
 				Provider:      tt.provider,
 			}})

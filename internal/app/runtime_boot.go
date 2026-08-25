@@ -334,6 +334,7 @@ func (s *runtimeState) newHTTPServer() (*http.Server, error) {
 		outcomeStore:        s.outcomeStore,
 		proguardStore:       s.proguardStore,
 		sourceMapStore:      s.sourceMapStore,
+		codeMappings:        s.codeMappingStore,
 		releaseHealth:       s.releaseHealthStore,
 		nativeCrashes:       s.nativeCrashStore,
 		alertDeps:           s.alertDeps(),

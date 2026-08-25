@@ -43,6 +43,7 @@ type httpDepsInput struct {
 	outcomeStore        *sqlite.OutcomeStore
 	proguardStore       proguard.Store
 	sourceMapStore      sourcemap.Store
+	codeMappings        store.CodeMappingStore
 	releaseHealth       *sqlite.ReleaseHealthStore
 	nativeCrashes       *sqlite.NativeCrashStore
 	alertDeps           *pipeline.AlertDeps
@@ -128,6 +129,7 @@ func newHTTPDeps(input httpDepsInput) ghttp.Deps {
 			Attachments:         input.attachmentStore,
 			ProGuardStore:       input.proguardStore,
 			SourceMapStore:      input.sourceMapStore,
+			CodeMappings:        input.codeMappings,
 			BlobStore:           input.blobStore,
 			Queries:             input.queryService,
 			IntegrationRegistry: input.integrationRegistry,
@@ -161,6 +163,7 @@ func newHTTPDeps(input httpDepsInput) ghttp.Deps {
 			QueryGuard:     input.queryGuard,
 			NativeControl:  input.nativeControl,
 			Analytics:      input.analytics,
+			CodeMappings:   input.codeMappings,
 			QuotaStore:     input.quota,
 		},
 		Metrics: input.metrics,

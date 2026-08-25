@@ -267,6 +267,37 @@ func TestSettingsPage(t *testing.T) {
 	}
 }
 
+func TestCreateForgejoCodeMapping(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	form := url.Values{
+		"project_id":     {"test-proj"},
+		"stack_root":     {"highlife/"},
+		"source_root":    {"[highlife]/highlife/"},
+		"provider":       {"forgejo"},
+		"repo_url":       {"https://forge.hlf.is/HighLife/core"},
+		"default_branch": {"master"},
+	}
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.PostForm(srv.URL+"/settings/code-mappings", form)
+	if err != nil {
+		t.Fatalf("POST /settings/code-mappings: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", resp.StatusCode)
+	}
+
+	var stackRoot, sourceRoot, provider, repoURL string
+	if err := db.QueryRow(`SELECT stack_root, source_root, provider, repo_url FROM code_mappings WHERE project_id = 'test-proj'`).Scan(&stackRoot, &sourceRoot, &provider, &repoURL); err != nil {
+		t.Fatalf("query code mapping: %v", err)
+	}
+	if stackRoot != "highlife/" || sourceRoot != "[highlife]/highlife/" || provider != "forgejo" || repoURL != "https://forge.hlf.is/HighLife/core" {
+		t.Fatalf("unexpected code mapping: stack=%q source=%q provider=%q repo=%q", stackRoot, sourceRoot, provider, repoURL)
+	}
+}
+
 func TestUpdateProjectSettings(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()

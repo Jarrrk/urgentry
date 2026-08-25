@@ -25,6 +25,22 @@ the frame `/srv/highlife/client/errors.lua:42` links to:
 https://github.com/example/platform/blob/main/services/game/client/errors.lua#L42
 ```
 
+For a Forgejo repository at `https://forge.hlf.is/HighLife/core`, where the frame is `highlife/client/core/error.lua:8` and the source lives under `[highlife]/highlife/`, use:
+
+| Field | Value |
+|---|---|
+| Stack Root | `highlife/` |
+| Source Root | `[highlife]/highlife/` |
+| Repository Provider | `Forgejo` |
+| Repository URL | `https://forge.hlf.is/HighLife/core` |
+| Default Branch | `master` |
+
+This produces:
+
+```text
+https://forge.hlf.is/HighLife/core/src/branch/master/%5Bhighlife%5D/highlife/client/core/error.lua#L8
+```
+
 ## Field reference
 
 - **Stack Root** is the path prefix reported by the runtime. Use an empty value to match every frame.

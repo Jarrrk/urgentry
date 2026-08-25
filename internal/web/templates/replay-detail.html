@@ -44,7 +44,6 @@
             <source src="{{.VideoURL}}" type="video/mp4">
           </video>
           {{else if .RecordingURL}}
-          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/style.css">
           <div id="rrwebReplayPlayer" class="replay-rrweb-player" data-recording-url="{{.RecordingURL}}">
             <div class="replay-preview-placeholder">
               <strong>Loading replay…</strong>
@@ -242,31 +241,43 @@
 </div>
 
 {{if .RecordingURL}}
-<script src="https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/index.js"></script>
 <script>
   (function() {
     var target = document.getElementById('rrwebReplayPlayer');
     if (!target) return;
     var url = target.getAttribute('data-recording-url');
-    fetch(url, { credentials: 'same-origin' })
-      .then(function(response) {
+    Promise.all([
+      fetch(url, { credentials: 'same-origin' }).then(function(response) {
         if (!response.ok) throw new Error('Replay recording could not be loaded (' + response.status + ').');
         return response.json();
+      }),
+      new Promise(function(resolve, reject) {
+        var frame = document.createElement('iframe');
+        frame.className = 'replay-rrweb-frame';
+        frame.title = 'Session replay';
+        frame.onload = function() {
+          var doc = frame.contentDocument;
+          doc.head.innerHTML = '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/style.css"><style>html,body,#player{margin:0;min-height:100%;background:#000}body{overflow:auto}</style>';
+          doc.body.innerHTML = '<div id="player"></div>';
+          var script = doc.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/index.js';
+          script.onload = function() { resolve(frame); };
+          script.onerror = function() { reject(new Error('The replay player library did not load.')); };
+          doc.body.appendChild(script);
+        };
+        target.innerHTML = '';
+        target.appendChild(frame);
       })
-      .then(function(payload) {
+    ]).then(function(result) {
+        var payload = result[0];
+        var frame = result[1];
         var events = payload && Array.isArray(payload.events) ? payload.events : [];
         if (events.length === 0) throw new Error('The replay recording contains no events.');
-        if (typeof window.rrwebPlayer !== 'function') throw new Error('The replay player library did not load.');
-        target.innerHTML = '';
+        if (typeof frame.contentWindow.rrwebPlayer !== 'function') throw new Error('The replay player library did not load.');
         var width = Math.max(320, Math.floor(target.clientWidth || 960));
-        new window.rrwebPlayer({
-          target: target,
-          props: {
-            events: events,
-            autoPlay: false,
-            width: width,
-            height: Math.max(240, Math.floor(width * 0.5625))
-          }
+        new frame.contentWindow.rrwebPlayer({
+          target: frame.contentDocument.getElementById('player'),
+          props: { events: events, autoPlay: false, width: width, height: Math.max(240, Math.floor(width * 0.5625)) }
         });
       })
       .catch(function(error) {

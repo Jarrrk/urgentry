@@ -1,6 +1,6 @@
 # Code mappings
 
-Code mappings turn file paths in stack frames into links to the matching source files in a repository. They do not upload, clone, or fetch source code.
+Code mappings turn file paths in stack frames into links to matching source files. For Forgejo and Gitea, Urgentry can also fetch a small source window around the failing line without cloning the repository.
 
 For each frame, Urgentry finds the first mapping whose **Stack Root** is a prefix of the frame filename. It removes that prefix, prepends **Source Root**, and creates the URL format selected by **Repository Provider**:
 
@@ -51,10 +51,17 @@ https://forge.hlf.is/HighLife/core/src/branch/master/%5Bhighlife%5D/highlife/cli
 
 Mappings are evaluated in their stored order and the first match wins. Use the most specific stack roots when a project has multiple mappings.
 
-## Private repositories and authentication
+## Forgejo source context and private repositories
 
-Urgentry does not make authenticated requests to the repository, so there is no repository access token to configure and no token is stored. A private-repository link works when the person opening it already has an authenticated browser session with the Git forge.
+Browser links to private repositories use the viewer's existing Forgejo session. To display source context inside Urgentry, configure the trusted Forgejo origin and a token with read-only repository access:
 
-Do not put an access token in the Repository URL. It could be exposed in rendered links, logs, browser history, or copied URLs.
+```text
+URGENTRY_FORGEJO_URL=https://forge.hlf.is
+URGENTRY_FORGEJO_TOKEN_FILE=/etc/urgentry/forgejo-token
+```
+
+`URGENTRY_FORGEJO_TOKEN` may be used instead of the file setting, but a root-readable token file is preferable for systemd. Restrict the token to the required repository and grant only `read:repository`. Urgentry sends it only when the mapping's repository URL has the same origin as `URGENTRY_FORGEJO_URL`. Source files larger than 2 MiB are not loaded.
+
+Do not put an access token in the Repository URL. It could be exposed in rendered links, logs, browser history, or copied URLs. Tokens are not stored in the Code Mapping database row.
 
 Select **Forgejo** or **Gitea** as the Repository Provider to generate their `/src/branch/{branch}/{path}` source links. GitHub and GitLab use `/blob/{branch}/{path}` links instead. Access-token authentication is unnecessary for either format because the links open in the user's browser.

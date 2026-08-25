@@ -63,6 +63,8 @@ type Config struct {
 	SMTPFrom            string
 	SMTPUser            string
 	SMTPPass            string
+	ForgejoURL          string
+	ForgejoToken        string
 }
 
 func Load() Config {
@@ -93,6 +95,14 @@ func load(strict bool) (Config, error) {
 			return Config{}, err
 		}
 		samlCertPEM = cert
+	}
+	forgejoToken := os.Getenv("URGENTRY_FORGEJO_TOKEN")
+	if forgejoToken == "" {
+		token, err := envFile("URGENTRY_FORGEJO_TOKEN_FILE", strict)
+		if err != nil {
+			return Config{}, err
+		}
+		forgejoToken = token
 	}
 
 	s3UseTLS, err := envBoolValue("URGENTRY_S3_USE_TLS", false, strict)
@@ -191,6 +201,8 @@ func load(strict bool) (Config, error) {
 		SMTPFrom:            os.Getenv("URGENTRY_SMTP_FROM"),
 		SMTPUser:            os.Getenv("URGENTRY_SMTP_USER"),
 		SMTPPass:            os.Getenv("URGENTRY_SMTP_PASS"),
+		ForgejoURL:          strings.TrimRight(os.Getenv("URGENTRY_FORGEJO_URL"), "/"),
+		ForgejoToken:        forgejoToken,
 	}, nil
 }
 

@@ -361,6 +361,7 @@ func (h *Handler) issueDetailFromDB(w http.ResponseWriter, r *http.Request, id s
 			if scope, scopeErr := h.defaultPageScope(ctx); scopeErr == nil && scope.ProjectID != "" {
 				if mappings, mapErr := h.codeMappings.ListCodeMappings(ctx, scope.ProjectID); mapErr == nil {
 					applyCodeMappingsToFrames(data.Frames, mappings)
+					h.applyCodeSourceContext(ctx, nil, data.Frames, mappings)
 				}
 			}
 		}

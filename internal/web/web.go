@@ -60,6 +60,7 @@ type Handler struct {
 	queryGuard      sqlite.QueryGuard
 	sourceResolver  *sourcemap.Resolver
 	codeMappings    store.CodeMappingStore
+	codeSource      *forgejoSourceClient
 	quotaStore      *sqlite.QuotaStore
 	pages           map[string]*template.Template
 	login           *template.Template
@@ -88,6 +89,8 @@ type Dependencies struct {
 	Analytics      analyticsservice.Services
 	SourceMaps     sourcemap.Store        // optional: nil disables source map resolution
 	CodeMappings   store.CodeMappingStore // optional: nil disables code mapping links
+	ForgejoURL     string                 // optional: enables repository source context
+	ForgejoToken   string                 // optional: token for private Forgejo repositories
 	QuotaStore     *sqlite.QuotaStore     // optional: nil disables quota page
 	TokenManager   auth.TokenManager      // optional: nil disables PAT management UI
 }
@@ -237,6 +240,7 @@ func NewHandler(deps Dependencies) (*Handler, error) {
 		queryGuard:      deps.QueryGuard,
 		sourceResolver:  srcResolver,
 		codeMappings:    deps.CodeMappings,
+		codeSource:      newForgejoSourceClient(deps.ForgejoURL, deps.ForgejoToken, nil),
 		quotaStore:      deps.QuotaStore,
 		pages:           pages,
 		login:           login,

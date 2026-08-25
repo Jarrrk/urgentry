@@ -109,7 +109,7 @@ func (h *Handler) issueListFromDB(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	filter := r.URL.Query().Get("filter")
 	if filter == "" {
-		filter = "all"
+		filter = "unresolved"
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	page := parsePage(r)

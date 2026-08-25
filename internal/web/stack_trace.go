@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	pathpkg "path"
 	"strings"
 
 	"urgentry/internal/store"
@@ -200,38 +201,49 @@ func applyCodeMappingsToFrames(frames []stackFrame, mappings []*store.CodeMappin
 }
 
 func codeMappingSourceURL(filename string, lineNo int, mappings []*store.CodeMapping) string {
-	if filename == "" {
+	mapping, repoPath := matchingCodeMapping(filename, mappings)
+	if mapping == nil {
 		return ""
 	}
-	for _, m := range mappings {
-		if m == nil || !strings.HasPrefix(filename, m.StackRoot) {
+	pathSegments := strings.Split(repoPath, "/")
+	for i := range pathSegments {
+		pathSegments[i] = url.PathEscape(pathSegments[i])
+	}
+	repoPath = strings.Join(pathSegments, "/")
+
+	repoURL := strings.TrimSuffix(mapping.RepoURL, "/")
+	branch := mapping.DefaultBranch
+	if branch == "" {
+		branch = "main"
+	}
+	provider, _ := store.NormalizeCodeMappingProvider(mapping.Provider)
+	var sourceURL string
+	switch provider {
+	case store.CodeMappingProviderForgejo, store.CodeMappingProviderGitea:
+		sourceURL = fmt.Sprintf("%s/src/branch/%s/%s", repoURL, branch, repoPath)
+	default:
+		sourceURL = fmt.Sprintf("%s/blob/%s/%s", repoURL, branch, repoPath)
+	}
+	if lineNo > 0 {
+		sourceURL += fmt.Sprintf("#L%d", lineNo)
+	}
+	return sourceURL
+}
+
+func matchingCodeMapping(filename string, mappings []*store.CodeMapping) (*store.CodeMapping, string) {
+	if filename == "" {
+		return nil, ""
+	}
+	for _, mapping := range mappings {
+		if mapping == nil || !strings.HasPrefix(filename, mapping.StackRoot) {
 			continue
 		}
-		repoPath := m.SourceRoot + strings.TrimPrefix(filename, m.StackRoot)
-		repoPath = strings.TrimPrefix(strings.ReplaceAll(repoPath, "//", "/"), "/")
-		pathSegments := strings.Split(repoPath, "/")
-		for i := range pathSegments {
-			pathSegments[i] = url.PathEscape(pathSegments[i])
+		repoPath := mapping.SourceRoot + strings.TrimPrefix(filename, mapping.StackRoot)
+		repoPath = strings.TrimPrefix(pathpkg.Clean("/"+strings.ReplaceAll(repoPath, "//", "/")), "/")
+		if repoPath == "." || repoPath == "" {
+			return nil, ""
 		}
-		repoPath = strings.Join(pathSegments, "/")
-
-		repoURL := strings.TrimSuffix(m.RepoURL, "/")
-		branch := m.DefaultBranch
-		if branch == "" {
-			branch = "main"
-		}
-		provider, _ := store.NormalizeCodeMappingProvider(m.Provider)
-		var sourceURL string
-		switch provider {
-		case store.CodeMappingProviderForgejo, store.CodeMappingProviderGitea:
-			sourceURL = fmt.Sprintf("%s/src/branch/%s/%s", repoURL, branch, repoPath)
-		default:
-			sourceURL = fmt.Sprintf("%s/blob/%s/%s", repoURL, branch, repoPath)
-		}
-		if lineNo > 0 {
-			sourceURL += fmt.Sprintf("#L%d", lineNo)
-		}
-		return sourceURL
+		return mapping, repoPath
 	}
-	return ""
+	return nil, ""
 }

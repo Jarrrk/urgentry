@@ -33,6 +33,26 @@ func TestIssueListPage(t *testing.T) {
 	}
 }
 
+func TestIssueListDefaultsToUnresolved(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	insertGroup(t, db, "grp-default-open", "Open issue", "main.go", "error", "unresolved")
+	insertGroup(t, db, "grp-default-resolved", "Resolved issue", "main.go", "error", "resolved")
+
+	resp, err := http.Get(srv.URL + "/issues/")
+	if err != nil {
+		t.Fatalf("GET /issues/: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !strings.Contains(body, "Open issue") || strings.Contains(body, "Resolved issue") {
+		t.Fatalf("default issue view did not show only unresolved issues: %s", body)
+	}
+}
+
 func TestIssueListPageTruncatesLongTitles(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()

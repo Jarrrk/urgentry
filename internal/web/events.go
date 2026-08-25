@@ -151,6 +151,7 @@ func (h *Handler) eventDetailFromDB(w http.ResponseWriter, r *http.Request, even
 			if mappings, mapErr := h.codeMappings.ListCodeMappings(r.Context(), scope.ProjectID); mapErr == nil {
 				applyCodeMappings(excGroups, mappings)
 				applyCodeMappingsToFrames(frames, mappings)
+				h.applyCodeSourceContext(r.Context(), excGroups, frames, mappings)
 			}
 		}
 	}

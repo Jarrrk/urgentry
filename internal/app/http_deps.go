@@ -74,6 +74,8 @@ type httpDepsInput struct {
 	prevent             store.PreventStore
 	metrics             *metrics.Metrics
 	version             string
+	forgejoURL          string
+	forgejoToken        string
 }
 
 func newHTTPDeps(input httpDepsInput) ghttp.Deps {
@@ -164,6 +166,8 @@ func newHTTPDeps(input httpDepsInput) ghttp.Deps {
 			NativeControl:  input.nativeControl,
 			Analytics:      input.analytics,
 			CodeMappings:   input.codeMappings,
+			ForgejoURL:     input.forgejoURL,
+			ForgejoToken:   input.forgejoToken,
 			QuotaStore:     input.quota,
 		},
 		Metrics: input.metrics,

@@ -17,6 +17,16 @@ func TestLoadIngestRateLimit(t *testing.T) {
 	}
 }
 
+func TestLoadForgejoSourceConfig(t *testing.T) {
+	t.Setenv("URGENTRY_FORGEJO_URL", "https://forge.hlf.is/")
+	t.Setenv("URGENTRY_FORGEJO_TOKEN", "source-token")
+
+	cfg := Load()
+	if cfg.ForgejoURL != "https://forge.hlf.is" || cfg.ForgejoToken != "source-token" {
+		t.Fatalf("Forgejo config = url %q token %q", cfg.ForgejoURL, cfg.ForgejoToken)
+	}
+}
+
 func TestLoadIngestRateLimitFallback(t *testing.T) {
 	t.Setenv("URGENTRY_INGEST_RATE_LIMIT", "not-an-int")
 

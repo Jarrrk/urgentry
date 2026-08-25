@@ -40,6 +40,8 @@ func TestNewHTTPDepsPassesCodeMappingsToAPIAndWeb(t *testing.T) {
 		db:           db,
 		dataDir:      t.TempDir(),
 		codeMappings: codeMappings,
+		forgejoURL:   "https://forge.hlf.is",
+		forgejoToken: "source-token",
 	})
 
 	if deps.API.CodeMappings != codeMappings {
@@ -47,5 +49,8 @@ func TestNewHTTPDepsPassesCodeMappingsToAPIAndWeb(t *testing.T) {
 	}
 	if deps.Web.CodeMappings != codeMappings {
 		t.Fatalf("web code mapping store = %p, want %p", deps.Web.CodeMappings, codeMappings)
+	}
+	if deps.Web.ForgejoURL != "https://forge.hlf.is" || deps.Web.ForgejoToken != "source-token" {
+		t.Fatalf("web Forgejo config = url %q token %q", deps.Web.ForgejoURL, deps.Web.ForgejoToken)
 	}
 }

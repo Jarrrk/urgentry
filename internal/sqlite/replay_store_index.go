@@ -254,7 +254,10 @@ const maxDecodedReplayRecordingBytes = 64 << 20
 // the header-prefixed, optionally zlib-compressed format emitted by Sentry's
 // browser Replay SDK.
 func DecodeReplayRecording(body []byte) ([]json.RawMessage, error) {
-	body = bytes.TrimSpace(body)
+	// Only trim framing whitespace from the front. The recording body may be
+	// binary zlib data whose final byte happens to equal an ASCII whitespace
+	// character; trimming the tail would corrupt an otherwise valid stream.
+	body = bytes.TrimLeft(body, " \t\r\n")
 	if len(body) == 0 {
 		return nil, fmt.Errorf("empty replay recording payload")
 	}

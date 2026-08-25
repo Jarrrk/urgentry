@@ -80,6 +80,7 @@ func persistEnvelopeSideEffects(ctx context.Context, deps IngestDeps, env *envel
 				}
 				if projectedBytes > replayPolicy.MaxBytes {
 					replayDropReason = "replay attachment exceeds max_bytes policy"
+					middleware.LogFromCtx(ctx).Warn().Str("project_id", projectID).Str("replay_id", activeReplayEventID).Int64("projected_bytes", projectedBytes).Int64("max_bytes", replayPolicy.MaxBytes).Msg("envelope: replay recording dropped by ingest policy")
 					saveReplayPolicyOutcome(ctx, deps.OutcomeStore, projectID, activeReplayEventID, "max_bytes", replayPolicy)
 				}
 			}

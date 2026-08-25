@@ -1,6 +1,8 @@
 package ingest
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"crypto/sha1"
 	"encoding/binary"
@@ -75,7 +77,46 @@ func scrubReplayRecordingPayload(payload []byte, policy store.ReplayIngestPolicy
 	if err != nil {
 		return payload
 	}
-	return encoded
+	return encodeScrubbedReplayRecording(payload, encoded)
+}
+
+// Sentry normally sends a small JSON segment header followed by a compressed
+// rrweb event stream. Preserve that framing and compression after privacy
+// scrubbing so the stored payload and replay byte policy use the wire-sized
+// representation rather than a much larger expanded JSON document.
+func encodeScrubbedReplayRecording(original, encoded []byte) []byte {
+	body := bytes.TrimLeft(original, " \t\r\n")
+	var header []byte
+	if newline := bytes.IndexByte(body, '\n'); newline > 0 {
+		var segmentHeader map[string]any
+		if json.Unmarshal(bytes.TrimSpace(body[:newline]), &segmentHeader) == nil && len(segmentHeader) > 0 {
+			header = append([]byte(nil), bytes.TrimSpace(body[:newline])...)
+			body = body[newline+1:]
+		}
+	}
+
+	output := encoded
+	if zr, err := zlib.NewReader(bytes.NewReader(body)); err == nil {
+		_ = zr.Close()
+		var compressed bytes.Buffer
+		zw := zlib.NewWriter(&compressed)
+		if _, writeErr := zw.Write(encoded); writeErr == nil {
+			if closeErr := zw.Close(); closeErr == nil {
+				output = compressed.Bytes()
+			}
+		} else {
+			_ = zw.Close()
+		}
+	}
+
+	if len(header) == 0 {
+		return output
+	}
+	framed := make([]byte, 0, len(header)+1+len(output))
+	framed = append(framed, header...)
+	framed = append(framed, '\n')
+	framed = append(framed, output...)
+	return framed
 }
 
 func scrubReplayValue(raw any, policy store.ReplayIngestPolicy, selectorMatched bool) any {

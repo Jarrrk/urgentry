@@ -258,6 +258,10 @@ func TestIssueDetailPage(t *testing.T) {
 		!strings.Contains(body, "Changed Since First Seen") {
 		t.Errorf("expected richer workflow context in detail page, got body: %s", body)
 	}
+	if !strings.Contains(body, "All Events (2)") ||
+		!strings.Contains(body, "body.classList.toggle('is-hidden')") {
+		t.Errorf("expected functional All Events disclosure in detail page, got body: %s", body)
+	}
 }
 
 func TestIssueDetailPageShowsAndNavigatesUserFeedback(t *testing.T) {

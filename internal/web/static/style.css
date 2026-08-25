@@ -1787,7 +1787,6 @@ span.event-counter {
 
 .frame-header .frame-line {
   color: var(--text-tertiary);
-  margin-left: auto;
 }
 
 .frame-code {

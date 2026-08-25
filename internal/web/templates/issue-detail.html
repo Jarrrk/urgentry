@@ -445,7 +445,7 @@
     <!-- All Events list (below main content, always visible) -->
     {{if and .HasEvent .Events}}
     <section class="detail-section section-top-gap-sm">
-      <h3 class="section-toggle" onclick="toggleSection(this)"><span class="toggle-arrow">&#9654;</span> All Events ({{.Issue.EventCount}})</h3>
+      <h3 class="section-toggle" onclick="toggleSection(this)" aria-expanded="false"><span class="toggle-arrow">&#9654;</span> All Events ({{.TotalEvents}})</h3>
       <div class="section-body is-hidden">
         <table class="events-table">
           <thead>
@@ -642,13 +642,9 @@ function toggleSection(header) {
   var body = header.nextElementSibling;
   if (!body) return;
   var arrow = header.querySelector('.toggle-arrow');
-  if (body.style.display === 'none') {
-    body.style.display = '';
-    if (arrow) arrow.innerHTML = '&#9660;';
-  } else {
-    body.style.display = 'none';
-    if (arrow) arrow.innerHTML = '&#9654;';
-  }
+  var isHidden = body.classList.toggle('is-hidden');
+  header.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
+  if (arrow) arrow.innerHTML = isHidden ? '&#9654;' : '&#9660;';
 }
 
 function copyToClipboard(text, btn) {

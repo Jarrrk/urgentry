@@ -303,6 +303,7 @@ func TestUpdateProjectSettings(t *testing.T) {
 	defer srv.Close()
 
 	form := url.Values{
+		"project_id":                         {"test-proj"},
 		"name":                               {"Renamed Project"},
 		"platform":                           {"python"},
 		"status":                             {"disabled"},
@@ -376,6 +377,7 @@ func TestUpdateProjectSettingsRejectsInvalidReplayPolicy(t *testing.T) {
 	defer srv.Close()
 
 	form := url.Values{
+		"project_id":         {"test-proj"},
 		"name":               {"Renamed Project"},
 		"platform":           {"python"},
 		"status":             {"active"},
@@ -399,6 +401,7 @@ func TestUpdateProjectSettingsRequiresSessionCSRF(t *testing.T) {
 	defer srv.Close()
 
 	form := url.Values{
+		"project_id":                         {"test-proj"},
 		"name":                               {"Renamed Project"},
 		"platform":                           {"python"},
 		"status":                             {"disabled"},

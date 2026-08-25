@@ -230,7 +230,14 @@ func defaultQueryGuardPolicy(workload QueryWorkload) QueryGuardPolicy {
 			MaxCostPerWindow:     2400,
 			WindowSeconds:        300,
 		}
-	case QueryWorkloadReplays, QueryWorkloadProfiles:
+	case QueryWorkloadReplays:
+		return QueryGuardPolicy{
+			MaxCostPerRequest:    220,
+			MaxRequestsPerWindow: 90,
+			MaxCostPerWindow:     7200,
+			WindowSeconds:        300,
+		}
+	case QueryWorkloadProfiles:
 		return QueryGuardPolicy{
 			MaxCostPerRequest:    220,
 			MaxRequestsPerWindow: 90,

@@ -12,6 +12,7 @@
 <div class="settings-section">
   <div class="section-header">General</div>
   <form method="post" action="/settings/project" class="settings-form">
+    <input type="hidden" name="project_id" value="{{.ProjectID}}">
     <div class="settings-form-grid">
       <label class="settings-form-field">
         <span class="settings-label">Project Name</span>

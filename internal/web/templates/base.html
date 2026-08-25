@@ -344,6 +344,12 @@
     function setGlobalProject(value) {
       if (!value) return;
       urgentrySetCookie('urgentry_project', value);
+      var switcher = document.getElementById('globalProjectSwitcher');
+      var selected = switcher && switcher.options[switcher.selectedIndex];
+      if (window.location.pathname.indexOf('/settings/project/') === 0 && selected && selected.dataset.settingsUrl) {
+        window.location.href = selected.dataset.settingsUrl;
+        return;
+      }
       window.location.reload();
     }
 
@@ -620,6 +626,7 @@
             var option = document.createElement('option');
             option.value = project.value;
             option.textContent = (project.orgName || project.orgSlug) + ' / ' + (project.name || project.slug);
+            option.dataset.settingsUrl = project.settingsUrl || '';
             if (project.value === data.selected) {
               option.selected = true;
               if (settings && project.settingsUrl) settings.href = project.settingsUrl;

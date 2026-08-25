@@ -326,6 +326,11 @@ func (h *Handler) updateProjectSettings(w http.ResponseWriter, r *http.Request) 
 		writeWebBadRequest(w, r, "Invalid form")
 		return
 	}
+	projectID := strings.TrimSpace(r.FormValue("project_id"))
+	if projectID == "" {
+		writeWebBadRequest(w, r, "Project ID is required")
+		return
+	}
 
 	name := strings.TrimSpace(r.FormValue("name"))
 	platform := strings.TrimSpace(r.FormValue("platform"))
@@ -360,11 +365,17 @@ func (h *Handler) updateProjectSettings(w http.ResponseWriter, r *http.Request) 
 		writeWebInternal(w, r, "Failed to load settings.")
 		return
 	}
-	if len(projects) == 0 {
+	var project *sharedstore.Project
+	for i := range projects {
+		if projects[i].ID == projectID {
+			project = &projects[i]
+			break
+		}
+	}
+	if project == nil {
 		writeWebNotFound(w, r, "Project not found")
 		return
 	}
-	project := projects[0]
 	if h.authz != nil {
 		if err := h.authz.AuthorizeProject(r, project.ID, auth.ScopeProjectWrite); err != nil {
 			writeWebForbidden(w, r)
@@ -390,7 +401,11 @@ func (h *Handler) updateProjectSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/settings/", http.StatusSeeOther)
+	redirectTo := "/settings/"
+	if referrer, parseErr := url.Parse(r.Referer()); parseErr == nil && strings.HasPrefix(referrer.Path, "/settings/project/") {
+		redirectTo = "/settings/project/" + project.Slug + "/general/"
+	}
+	http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 }
 
 func (h *Handler) createOwnershipRule(w http.ResponseWriter, r *http.Request) {

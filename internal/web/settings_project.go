@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"urgentry/internal/auth"
 	sharedstore "urgentry/internal/store"
 )
 
@@ -76,6 +77,11 @@ func (h *Handler) resolveProjectBySlug(r *http.Request, slug string) (*sharedsto
 	for i := range projects {
 		p := &projects[i]
 		if p.Slug == slug {
+			if h.authz != nil {
+				if authErr := h.authz.AuthorizeProject(r, p.ID, auth.ScopeProjectRead); authErr != nil {
+					continue
+				}
+			}
 			settings, settErr := h.catalog.GetProjectSettings(ctx, p.OrgSlug, p.Slug)
 			if settErr != nil {
 				return nil, nil, settErr
@@ -158,6 +164,7 @@ func (h *Handler) projectSettingsGeneralPage(w http.ResponseWriter, r *http.Requ
 		writeWebNotFound(w, r, "Project not found.")
 		return
 	}
+	setSelectedProjectCookie(w, project.OrgSlug, project.Slug)
 
 	data := h.baseProjectSettingsData(r, project, settings, "general")
 	data.Title = project.Name + " — General Settings"
@@ -179,6 +186,7 @@ func (h *Handler) projectSettingsKeysPage(w http.ResponseWriter, r *http.Request
 		writeWebNotFound(w, r, "Project not found.")
 		return
 	}
+	setSelectedProjectCookie(w, project.OrgSlug, project.Slug)
 
 	ctx := r.Context()
 	rawKeys, keysErr := h.catalog.ListProjectKeys(ctx, project.OrgSlug, project.Slug)
@@ -226,6 +234,7 @@ func (h *Handler) projectSettingsOwnershipPage(w http.ResponseWriter, r *http.Re
 		writeWebNotFound(w, r, "Project not found.")
 		return
 	}
+	setSelectedProjectCookie(w, project.OrgSlug, project.Slug)
 
 	ctx := r.Context()
 	var ownershipRules []settingsOwnershipRule
@@ -266,6 +275,7 @@ func (h *Handler) projectSettingsEnvironmentsPage(w http.ResponseWriter, r *http
 		writeWebNotFound(w, r, "Project not found.")
 		return
 	}
+	setSelectedProjectCookie(w, project.OrgSlug, project.Slug)
 
 	ctx := r.Context()
 	var envRows []projectEnvRow
@@ -301,6 +311,7 @@ func (h *Handler) projectSettingsRetentionPage(w http.ResponseWriter, r *http.Re
 		writeWebNotFound(w, r, "Project not found.")
 		return
 	}
+	setSelectedProjectCookie(w, project.OrgSlug, project.Slug)
 
 	data := h.baseProjectSettingsData(r, project, settings, "retention")
 	data.Title = project.Name + " — Retention Policy"
@@ -335,6 +346,7 @@ func (h *Handler) projectSettingsFiltersPage(w http.ResponseWriter, r *http.Requ
 		writeWebNotFound(w, r, "Project not found.")
 		return
 	}
+	setSelectedProjectCookie(w, project.OrgSlug, project.Slug)
 
 	data := h.baseProjectSettingsData(r, project, settings, "filters")
 	data.Title = project.Name + " — Inbound Filters"

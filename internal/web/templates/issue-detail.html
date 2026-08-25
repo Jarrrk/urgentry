@@ -211,7 +211,7 @@
                 <div class="frame frame-system">
                   <div class="frame-header" onclick="event.stopPropagation(); var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}">
                     <span class="frame-toggle">&#9660;</span>
-                    <span class="frame-file">{{.File}}</span>
+                    {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
                     <span class="frame-in">in</span>
                     <span class="frame-func">{{.Function}}</span>
                     <span class="frame-line">at line {{.LineNo}}</span>
@@ -237,7 +237,7 @@
             <div class="frame frame-inapp">
               <div class="frame-header" onclick="var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}">
                 <span class="frame-toggle">&#9660;</span>
-                <span class="frame-file">{{.File}}</span>
+                {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
                 <span class="frame-in">in</span>
                 <span class="frame-func">{{.Function}}</span>
                 <span class="frame-line">at line {{.LineNo}}</span>
@@ -270,7 +270,7 @@
           <div class="frame {{if .InApp}}frame-inapp{{else}}frame-system{{end}}">
             <div class="frame-header" onclick="var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}">
               <span class="frame-toggle">&#9660;</span>
-              <span class="frame-file">{{.File}}</span>
+              {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
               <span class="frame-in">in</span>
               <span class="frame-func">{{.Function}}</span>
               <span class="frame-line">at line {{.LineNo}}</span>

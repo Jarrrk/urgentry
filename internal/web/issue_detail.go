@@ -357,6 +357,13 @@ func (h *Handler) issueDetailFromDB(w http.ResponseWriter, r *http.Request, id s
 		}
 
 		data.Frames = generateFramesFromDB(latestEvent)
+		if h.codeMappings != nil {
+			if scope, scopeErr := h.defaultPageScope(ctx); scopeErr == nil && scope.ProjectID != "" {
+				if mappings, mapErr := h.codeMappings.ListCodeMappings(ctx, scope.ProjectID); mapErr == nil {
+					applyCodeMappingsToFrames(data.Frames, mappings)
+				}
+			}
+		}
 
 		// Tags from normalized JSON or tags_json.
 		tags := make([]kvPair, 0, len(latestEvent.Tags))

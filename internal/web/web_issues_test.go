@@ -225,6 +225,12 @@ func TestIssueDetailPage(t *testing.T) {
 	insertEvent(t, db, "evt-detail-2", "grp-detail-1", "ValueError: cannot parse", "error", "another parse failure")
 	insertEvent(t, db, "evt-detail-similar", "grp-detail-similar", "ValueError: cannot parse", "error", "similar parse failure")
 	insertEvent(t, db, "evt-detail-merged", "grp-detail-merged", "ValueError: cannot parse payload", "error", "merged parse failure")
+	if err := sqlite.NewCodeMappingStore(db).CreateCodeMapping(t.Context(), &store.CodeMapping{
+		ProjectID: "test-proj", StackRoot: "highlife/", SourceRoot: "[highlife]/highlife/",
+		DefaultBranch: "master", RepoURL: "https://forge.hlf.is/HighLife/core", Provider: store.CodeMappingProviderForgejo,
+	}); err != nil {
+		t.Fatalf("create issue code mapping: %v", err)
+	}
 
 	_, err := db.Exec(
 		`UPDATE groups
@@ -241,6 +247,11 @@ func TestIssueDetailPage(t *testing.T) {
 		                        WHEN 'evt-detail-1' THEN '2026-03-28T12:00:00Z'
 		                        WHEN 'evt-detail-2' THEN '2026-03-28T12:05:00Z'
 		                        ELSE occurred_at
+		                      END,
+		        ingested_at = CASE event_id
+		                        WHEN 'evt-detail-1' THEN '2026-03-28T12:00:01Z'
+		                        WHEN 'evt-detail-2' THEN '2026-03-28T12:05:01Z'
+		                        ELSE ingested_at
 		                      END,
 		        release = CASE event_id
 		                    WHEN 'evt-detail-1' THEN 'web@1.0.0'
@@ -261,6 +272,10 @@ func TestIssueDetailPage(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("update issue detail event context: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE events SET payload_json = ? WHERE event_id = 'evt-detail-2'`,
+		`{"event_id":"evt-detail-2","exception":{"values":[{"type":"Error","value":"another parse failure","stacktrace":{"frames":[{"filename":"highlife/client/core/error.lua","function":"handler","lineno":8,"in_app":true}]}}]}}`); err != nil {
+		t.Fatalf("update issue stack trace: %v", err)
 	}
 	similar, err := sqlite.NewWebStore(db).ListSimilarIssues(t.Context(), "grp-detail-1", 6)
 	if err != nil {
@@ -288,6 +303,9 @@ func TestIssueDetailPage(t *testing.T) {
 	if !strings.Contains(body, "All Events (2)") ||
 		!strings.Contains(body, "body.classList.toggle('is-hidden')") {
 		t.Errorf("expected functional All Events disclosure in detail page, got body: %s", body)
+	}
+	if !strings.Contains(body, `href="https://forge.hlf.is/HighLife/core/src/branch/master/%5Bhighlife%5D/highlife/client/core/error.lua#L8"`) {
+		t.Errorf("expected mapped Forgejo source link in issue detail page, got body: %s", body)
 	}
 }
 

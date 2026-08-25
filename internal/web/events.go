@@ -63,6 +63,7 @@ type stackFrame struct {
 	ColNo      int
 	InApp      bool
 	MappedFrom string // e.g. "mapped from app.min.js:1:45678" (empty if not source-mapped)
+	SourceURL  string
 	CodeLines  []codeLine
 }
 
@@ -149,6 +150,7 @@ func (h *Handler) eventDetailFromDB(w http.ResponseWriter, r *http.Request, even
 		if scope, scopeErr := h.defaultPageScope(r.Context()); scopeErr == nil && scope.ProjectID != "" {
 			if mappings, mapErr := h.codeMappings.ListCodeMappings(r.Context(), scope.ProjectID); mapErr == nil {
 				applyCodeMappings(excGroups, mappings)
+				applyCodeMappingsToFrames(frames, mappings)
 			}
 		}
 	}

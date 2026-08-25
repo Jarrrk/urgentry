@@ -188,45 +188,50 @@ func applyCodeMappings(groups []exceptionGroup, mappings []*store.CodeMapping) {
 	for gi := range groups {
 		for fi := range groups[gi].Frames {
 			frame := &groups[gi].Frames[fi]
-			filename := frame.File
-			if filename == "" {
-				continue
-			}
-			for _, m := range mappings {
-				if !strings.HasPrefix(filename, m.StackRoot) {
-					continue
-				}
-				rest := strings.TrimPrefix(filename, m.StackRoot)
-				repoPath := m.SourceRoot + rest
-				// Normalize double slashes
-				repoPath = strings.ReplaceAll(repoPath, "//", "/")
-				repoPath = strings.TrimPrefix(repoPath, "/")
-				pathSegments := strings.Split(repoPath, "/")
-				for i := range pathSegments {
-					pathSegments[i] = url.PathEscape(pathSegments[i])
-				}
-				repoPath = strings.Join(pathSegments, "/")
-
-				repoURL := strings.TrimSuffix(m.RepoURL, "/")
-				branch := m.DefaultBranch
-				if branch == "" {
-					branch = "main"
-				}
-
-				provider, _ := store.NormalizeCodeMappingProvider(m.Provider)
-				var url string
-				switch provider {
-				case store.CodeMappingProviderForgejo, store.CodeMappingProviderGitea:
-					url = fmt.Sprintf("%s/src/branch/%s/%s", repoURL, branch, repoPath)
-				default:
-					url = fmt.Sprintf("%s/blob/%s/%s", repoURL, branch, repoPath)
-				}
-				if frame.LineNo > 0 {
-					url += fmt.Sprintf("#L%d", frame.LineNo)
-				}
-				frame.SourceURL = url
-				break // first matching mapping wins
-			}
+			frame.SourceURL = codeMappingSourceURL(frame.File, frame.LineNo, mappings)
 		}
 	}
+}
+
+func applyCodeMappingsToFrames(frames []stackFrame, mappings []*store.CodeMapping) {
+	for i := range frames {
+		frames[i].SourceURL = codeMappingSourceURL(frames[i].File, frames[i].LineNo, mappings)
+	}
+}
+
+func codeMappingSourceURL(filename string, lineNo int, mappings []*store.CodeMapping) string {
+	if filename == "" {
+		return ""
+	}
+	for _, m := range mappings {
+		if m == nil || !strings.HasPrefix(filename, m.StackRoot) {
+			continue
+		}
+		repoPath := m.SourceRoot + strings.TrimPrefix(filename, m.StackRoot)
+		repoPath = strings.TrimPrefix(strings.ReplaceAll(repoPath, "//", "/"), "/")
+		pathSegments := strings.Split(repoPath, "/")
+		for i := range pathSegments {
+			pathSegments[i] = url.PathEscape(pathSegments[i])
+		}
+		repoPath = strings.Join(pathSegments, "/")
+
+		repoURL := strings.TrimSuffix(m.RepoURL, "/")
+		branch := m.DefaultBranch
+		if branch == "" {
+			branch = "main"
+		}
+		provider, _ := store.NormalizeCodeMappingProvider(m.Provider)
+		var sourceURL string
+		switch provider {
+		case store.CodeMappingProviderForgejo, store.CodeMappingProviderGitea:
+			sourceURL = fmt.Sprintf("%s/src/branch/%s/%s", repoURL, branch, repoPath)
+		default:
+			sourceURL = fmt.Sprintf("%s/blob/%s/%s", repoURL, branch, repoPath)
+		}
+		if lineNo > 0 {
+			sourceURL += fmt.Sprintf("#L%d", lineNo)
+		}
+		return sourceURL
+	}
+	return ""
 }

@@ -115,7 +115,7 @@
       <div class="frame">
         <div class="frame-header" onclick="toggleFrame(this)">
           <span class="frame-toggle">&#9660;</span>
-          <span class="frame-file">{{.File}}</span>
+          {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
           <span>in</span>
           <span class="frame-func">{{.Function}}</span>
           <span class="frame-line">line {{.LineNo}}</span>

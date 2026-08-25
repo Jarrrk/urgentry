@@ -68,8 +68,8 @@ type WebStore interface {
 	GetIssueWorkflowState(ctx context.Context, groupID, userID string) (IssueWorkflowState, error)
 	ListSimilarIssues(ctx context.Context, groupID string, limit int) ([]WebIssue, error)
 	ListMergedChildIssues(ctx context.Context, groupID string, limit int) ([]WebIssue, error)
-	ListFeedback(ctx context.Context, limit int) ([]FeedbackRow, error)
-	GetFeedback(ctx context.Context, id string) (*FeedbackRow, error)
+	ListFeedback(ctx context.Context, projectID string, limit int) ([]FeedbackRow, error)
+	GetFeedback(ctx context.Context, projectID, id string) (*FeedbackRow, error)
 	ListReleases(ctx context.Context, limit int) ([]ReleaseRow, error)
 	DefaultProjectID(ctx context.Context) (string, error)
 	ListAlertRules(ctx context.Context, limit int) ([]AlertRuleSummary, error)
@@ -82,6 +82,7 @@ type WebStore interface {
 // IssueListOpts controls filtering, searching, sorting, and pagination
 // for issue list queries.
 type IssueListOpts struct {
+	ProjectID   string
 	Filter      string    // "all", "unresolved", "resolved", "ignored"
 	Query       string    // free-text search across title/culprit
 	Environment string    // empty = all environments

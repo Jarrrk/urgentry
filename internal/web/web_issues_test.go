@@ -33,6 +33,44 @@ func TestIssueListPage(t *testing.T) {
 	}
 }
 
+func TestIssueListPageHonorsSelectedProject(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	insertGroup(t, db, "grp-default-project", "Default project issue", "default.go", "error", "unresolved")
+	if _, err := db.Exec(`INSERT INTO projects (id, organization_id, slug, name, platform, status)
+		VALUES ('mobile-proj', 'test-org', 'mobile-app', 'Mobile App', 'javascript', 'active')`); err != nil {
+		t.Fatalf("insert selected project: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO groups
+		(id, project_id, grouping_version, grouping_key, title, culprit, level, status, first_seen, last_seen, times_seen, short_id)
+		VALUES ('grp-mobile-project', 'mobile-proj', 'urgentry-v1', 'grp-mobile-project', 'Selected project issue', 'mobile.js', 'error', 'unresolved', ?, ?, 1, 2)`, now, now); err != nil {
+		t.Fatalf("insert selected project issue: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/issues/", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: selectedProjectCookie, Value: "test-org%2Fmobile-app"})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /issues/: %v", err)
+	}
+	body := getBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "Selected project issue") {
+		t.Fatalf("selected project issue missing from body: %s", body)
+	}
+	if strings.Contains(body, "Default project issue") {
+		t.Fatalf("default project issue leaked into selected project: %s", body)
+	}
+}
+
 func TestIssueListSearch(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()

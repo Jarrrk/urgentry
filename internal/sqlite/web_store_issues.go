@@ -27,7 +27,7 @@ func (s *WebStore) ListIssues(ctx context.Context, opts store.IssueListOpts) ([]
 }
 
 func (s *WebStore) queryIssues(ctx context.Context, opts store.IssueListOpts) ([]store.WebIssue, error) {
-	query, args := buildIssueSearchListQuerySince("", opts.Filter, opts.Query, opts.Environment, opts.Sort, opts.Since, opts.Limit, opts.Offset)
+	query, args := buildIssueSearchListQuerySince(opts.ProjectID, opts.Filter, opts.Query, opts.Environment, opts.Sort, opts.Since, opts.Limit, opts.Offset)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func (s *WebStore) queryIssues(ctx context.Context, opts store.IssueListOpts) ([
 }
 
 func (s *WebStore) countFilteredIssues(ctx context.Context, opts store.IssueListOpts) (int, error) {
-	q, args := buildIssueSearchCountQuerySince("", opts.Filter, opts.Query, opts.Environment, opts.Since)
+	q, args := buildIssueSearchCountQuerySince(opts.ProjectID, opts.Filter, opts.Query, opts.Environment, opts.Since)
 	return s.count(ctx, q, args...)
 }
 

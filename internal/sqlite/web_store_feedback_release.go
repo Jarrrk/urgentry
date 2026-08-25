@@ -9,13 +9,13 @@ import (
 )
 
 // ListFeedback returns recent user feedback rows.
-func (s *WebStore) ListFeedback(ctx context.Context, limit int) ([]store.FeedbackRow, error) {
+func (s *WebStore) ListFeedback(ctx context.Context, projectID string, limit int) ([]store.FeedbackRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, email, comments, event_id, group_id, created_at
-		 FROM user_feedback ORDER BY created_at DESC LIMIT ?`, limit)
+		 FROM user_feedback WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -39,10 +39,10 @@ func (s *WebStore) ListFeedback(ctx context.Context, limit int) ([]store.Feedbac
 }
 
 // GetFeedback returns a single feedback row by ID.
-func (s *WebStore) GetFeedback(ctx context.Context, id string) (*store.FeedbackRow, error) {
+func (s *WebStore) GetFeedback(ctx context.Context, projectID, id string) (*store.FeedbackRow, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, name, email, comments, event_id, group_id, created_at
-		 FROM user_feedback WHERE id = ?`, id)
+		 FROM user_feedback WHERE project_id = ? AND id = ?`, projectID, id)
 	var item store.FeedbackRow
 	var name, email, comments, eventID, groupID, createdAt sql.NullString
 	if err := row.Scan(&item.ID, &name, &email, &comments, &eventID, &groupID, &createdAt); err != nil {

@@ -311,6 +311,44 @@ func TestFeedbackPage(t *testing.T) {
 	_ = body
 }
 
+func TestFeedbackPageHonorsSelectedProject(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	if _, err := db.Exec(`INSERT INTO projects (id, organization_id, slug, name, platform, status)
+		VALUES ('mobile-proj', 'test-org', 'mobile-app', 'Mobile App', 'javascript', 'active')`); err != nil {
+		t.Fatalf("insert selected project: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO user_feedback
+		(id, project_id, name, email, comments, created_at) VALUES
+		('feedback-default', 'test-proj', 'Default User', 'default@example.com', 'Default project feedback', ?),
+		('feedback-mobile', 'mobile-proj', 'Mobile User', 'mobile@example.com', 'Selected project feedback', ?)`, now, now); err != nil {
+		t.Fatalf("insert feedback: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/feedback/", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: selectedProjectCookie, Value: "test-org%2Fmobile-app"})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /feedback/: %v", err)
+	}
+	body := getBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "Selected project feedback") {
+		t.Fatalf("selected project feedback missing from body: %s", body)
+	}
+	if strings.Contains(body, "Default project feedback") {
+		t.Fatalf("default project feedback leaked into selected project: %s", body)
+	}
+}
+
 func TestFeedbackPageFailsWhenStoreErrors(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()
@@ -328,8 +366,8 @@ func TestFeedbackPageFailsWhenStoreErrors(t *testing.T) {
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", resp.StatusCode)
 	}
-	if !strings.Contains(body, "Failed to load feedback.") {
-		t.Fatalf("body = %q, want feedback error", body)
+	if !strings.Contains(body, "Failed to resolve selected project.") {
+		t.Fatalf("body = %q, want project scope error", body)
 	}
 }
 

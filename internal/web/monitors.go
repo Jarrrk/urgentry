@@ -76,20 +76,23 @@ func (h *Handler) monitorsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	scope, err := h.defaultPageScope(ctx)
+	if err != nil {
+		writeWebInternal(w, r, "Failed to resolve selected project.")
+		return
+	}
 	items, err := h.monitors.ListAllMonitors(ctx, 200)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load monitors.")
 		return
 	}
-	defaultProject := ""
-	if h.webStore != nil {
-		if id, err := h.webStore.DefaultProjectID(ctx); err == nil {
-			defaultProject = id
-		}
-	}
+	defaultProject := scope.ProjectID
 
 	rows := make([]monitorRow, 0, len(items))
 	for _, item := range items {
+		if item.ProjectID != scope.ProjectID {
+			continue
+		}
 		rows = append(rows, monitorRow{
 			ID:            item.ID,
 			ProjectID:     item.ProjectID,

@@ -266,7 +266,7 @@ func TestWebStoreReadPaths(t *testing.T) {
 	if attachments, err := ws.ListEventAttachments(ctx, "evt-1"); err != nil || len(attachments) != 1 {
 		t.Fatalf("ListEventAttachments = %+v, %v", attachments, err)
 	}
-	if feedback, err := ws.ListFeedback(ctx, 10); err != nil || len(feedback) != 1 {
+	if feedback, err := ws.ListFeedback(ctx, "test-proj-id", 10); err != nil || len(feedback) != 1 {
 		t.Fatalf("ListFeedback = %+v, %v", feedback, err)
 	}
 	releases, err := ws.ListReleases(ctx, 10)

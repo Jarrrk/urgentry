@@ -347,9 +347,9 @@ func (h *Handler) issueReplaysTab(w http.ResponseWriter, r *http.Request) {
 	var rows []replayRow
 	if h.replays != nil {
 		ctx := r.Context()
-		projectID, _ := h.webStore.DefaultProjectID(ctx)
-		if projectID != "" {
-			manifests, err := h.replays.ListReplays(ctx, projectID, 200)
+		scope, _ := h.defaultPageScope(ctx)
+		if scope.ProjectID != "" {
+			manifests, err := h.replays.ListReplays(ctx, scope.ProjectID, 200)
 			if err == nil {
 				for _, m := range manifests {
 					linked := false

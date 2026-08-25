@@ -138,16 +138,16 @@ func (h *Handler) eventDetailFromDB(w http.ResponseWriter, r *http.Request, even
 			}
 		}
 		if release != "" {
-			projectID, _ := h.webStore.DefaultProjectID(r.Context())
-			excGroups = resolveSourceContext(r.Context(), h.sourceResolver, projectID, release, excGroups)
+			if scope, scopeErr := h.defaultPageScope(r.Context()); scopeErr == nil {
+				excGroups = resolveSourceContext(r.Context(), h.sourceResolver, scope.ProjectID, release, excGroups)
+			}
 		}
 	}
 
 	// Apply code mappings to generate source links for stack frames.
 	if h.codeMappings != nil {
-		projectID, _ := h.webStore.DefaultProjectID(r.Context())
-		if projectID != "" {
-			if mappings, mapErr := h.codeMappings.ListCodeMappings(r.Context(), projectID); mapErr == nil {
+		if scope, scopeErr := h.defaultPageScope(r.Context()); scopeErr == nil && scope.ProjectID != "" {
+			if mappings, mapErr := h.codeMappings.ListCodeMappings(r.Context(), scope.ProjectID); mapErr == nil {
 				applyCodeMappings(excGroups, mappings)
 			}
 		}

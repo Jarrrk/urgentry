@@ -303,6 +303,7 @@ func (h *Handler) renderDiscoverPage(w http.ResponseWriter, r *http.Request, tit
 	}
 	queryDoc, queryErr := buildDiscoverQuery(initialScope.OrganizationSlug, state, 50)
 	if queryErr == nil {
+		queryDoc.Scope = discover.Scope{Kind: discover.ScopeKindProject, ProjectID: initialScope.ProjectID}
 		data.Explain = buildDiscoverExplain(queryDoc)
 	}
 	if principal != nil && principal.User != nil {
@@ -353,7 +354,7 @@ func (h *Handler) renderDiscoverPage(w http.ResponseWriter, r *http.Request, tit
 			return
 		}
 	}
-	if discoverUsesIssueSearchFastPath(state) {
+	if initialScope.ProjectID == "" && discoverUsesIssueSearchFastPath(state) {
 		rows, err := h.queries.SearchDiscoverIssues(r.Context(), initialScope.OrganizationSlug, state.Filter, discoverIssueSearchQuery(state), 50)
 		if err != nil {
 			if normalizedExportFormat(r.URL.Query().Get("export")) != "" {

@@ -30,10 +30,15 @@ type feedbackRow struct {
 
 func (h *Handler) feedbackPage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	scope, err := h.defaultPageScope(ctx)
+	if err != nil {
+		writeWebInternal(w, r, "Failed to resolve selected project.")
+		return
+	}
 
 	var items []feedbackRow
 	if h.webStore != nil {
-		rows, err := h.listFeedbackDB(ctx, 100)
+		rows, err := h.listFeedbackDB(ctx, scope.ProjectID, 100)
 		if err != nil {
 			http.Error(w, "Failed to load feedback.", http.StatusInternalServerError)
 			return
@@ -71,7 +76,12 @@ func (h *Handler) feedbackDetailPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	row, err := h.webStore.GetFeedback(ctx, id)
+	scope, err := h.defaultPageScope(ctx)
+	if err != nil {
+		writeWebInternal(w, r, "Failed to resolve selected project.")
+		return
+	}
+	row, err := h.webStore.GetFeedback(ctx, scope.ProjectID, id)
 	if err != nil {
 		http.Error(w, "Failed to load feedback.", http.StatusInternalServerError)
 		return
@@ -99,8 +109,8 @@ func (h *Handler) feedbackDetailPage(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "feedback-detail.html", data)
 }
 
-func (h *Handler) listFeedbackDB(ctx context.Context, limit int) ([]feedbackRow, error) {
-	rows, err := h.webStore.ListFeedback(ctx, limit)
+func (h *Handler) listFeedbackDB(ctx context.Context, projectID string, limit int) ([]feedbackRow, error) {
+	rows, err := h.webStore.ListFeedback(ctx, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -207,14 +207,14 @@ func (s *WebStore) ListMergedChildIssues(ctx context.Context, groupID string, li
 }
 
 // CountSearchGroups counts groups matching a search query, optionally filtered by status.
-func (s *WebStore) CountSearchGroups(ctx context.Context, filter, search string) (int, error) {
-	q, args := buildIssueSearchCountQuery("", filter, search, "")
+func (s *WebStore) CountSearchGroups(ctx context.Context, projectID, filter, search string) (int, error) {
+	q, args := buildIssueSearchCountQuery(projectID, filter, search, "")
 	return s.count(ctx, q, args...)
 }
 
 // CountSearchGroupsForEnvironment counts groups matching a search query within one environment.
-func (s *WebStore) CountSearchGroupsForEnvironment(ctx context.Context, env, filter, search string) (int, error) {
-	q, args := buildIssueSearchCountQuery("", filter, search, env)
+func (s *WebStore) CountSearchGroupsForEnvironment(ctx context.Context, projectID, env, filter, search string) (int, error) {
+	q, args := buildIssueSearchCountQuery(projectID, filter, search, env)
 	return s.count(ctx, q, args...)
 }
 

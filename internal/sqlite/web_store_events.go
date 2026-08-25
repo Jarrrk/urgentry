@@ -14,9 +14,9 @@ func (s *WebStore) ListIssueEvents(ctx context.Context, groupID string, limit in
 	return ListGroupEvents(ctx, s.db, groupID, limit)
 }
 
-// ListRecentEvents returns the most recent events across all projects.
-func (s *WebStore) ListRecentEvents(ctx context.Context, limit int) ([]store.WebEvent, error) {
-	return ListRecentEvents(ctx, s.db, limit)
+// ListRecentEvents returns the most recent events for a project.
+func (s *WebStore) ListRecentEvents(ctx context.Context, projectID string, limit int) ([]store.WebEvent, error) {
+	return ListProjectEvents(ctx, s.db, projectID, limit)
 }
 
 // GetEvent returns a single event by event_id.
@@ -55,6 +55,10 @@ func (s *WebStore) ListRecentLogs(ctx context.Context, orgSlug string, limit int
 	return ListRecentLogs(ctx, s.db, orgSlug, limit)
 }
 
+func (s *WebStore) ListRecentProjectLogs(ctx context.Context, projectID string, limit int) ([]store.DiscoverLog, error) {
+	return ListRecentProjectLogs(ctx, s.db, projectID, limit)
+}
+
 // SearchLogs returns log events matching the discover query subset.
 func (s *WebStore) SearchLogs(ctx context.Context, orgSlug, rawQuery string, limit int) ([]store.DiscoverLog, error) {
 	return SearchLogs(ctx, s.db, orgSlug, rawQuery, limit)
@@ -63,6 +67,10 @@ func (s *WebStore) SearchLogs(ctx context.Context, orgSlug, rawQuery string, lim
 // ListRecentTransactions returns the most recent transaction rows across an organization.
 func (s *WebStore) ListRecentTransactions(ctx context.Context, orgSlug string, limit int) ([]store.DiscoverTransaction, error) {
 	return ListRecentTransactions(ctx, s.db, orgSlug, limit)
+}
+
+func (s *WebStore) ListRecentProjectTransactions(ctx context.Context, projectID string, limit int) ([]store.DiscoverTransaction, error) {
+	return ListRecentProjectTransactions(ctx, s.db, projectID, limit)
 }
 
 // SearchTransactions returns transaction rows matching the discover query subset.
@@ -126,9 +134,9 @@ func scanWebEventRow(row *sql.Row) (*store.WebEvent, error) {
 }
 
 // FirstEventAt returns the timestamp of the first ingested event, if any.
-func (s *WebStore) FirstEventAt(ctx context.Context) (*time.Time, error) {
+func (s *WebStore) FirstEventAt(ctx context.Context, projectID string) (*time.Time, error) {
 	var firstAt sql.NullString
-	if err := s.db.QueryRowContext(ctx, `SELECT MIN(ingested_at) FROM events`).Scan(&firstAt); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT MIN(ingested_at) FROM events WHERE project_id = ?`, projectID).Scan(&firstAt); err != nil {
 		return nil, err
 	}
 	if !firstAt.Valid || firstAt.String == "" {
@@ -142,9 +150,9 @@ func (s *WebStore) FirstEventAt(ctx context.Context) (*time.Time, error) {
 }
 
 // CountErrorLevelEvents returns error+fatal event count.
-func (s *WebStore) CountErrorLevelEvents(ctx context.Context) (int, error) {
+func (s *WebStore) CountErrorLevelEvents(ctx context.Context, projectID string) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE level IN ('error', 'fatal')`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE project_id = ? AND level IN ('error', 'fatal')`, projectID).Scan(&count)
 	return count, err
 }
 

@@ -13,9 +13,10 @@ import (
 func BenchmarkWebStoreListIssues(b *testing.B) {
 	ws, ctx, now := newBenchmarkWebStore(b)
 	opts := sharedstore.IssueListOpts{
-		Filter: "all",
-		Sort:   "last_seen",
-		Limit:  25,
+		ProjectID: "bench-proj",
+		Filter:    "all",
+		Sort:      "last_seen",
+		Limit:     25,
 	}
 
 	b.ReportAllocs()
@@ -37,7 +38,7 @@ func BenchmarkWebStoreDashboardSummary(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		summary, err := ws.DashboardSummary(ctx, now)
+		summary, err := ws.DashboardSummary(ctx, "bench-proj", now)
 		if err != nil {
 			b.Fatalf("DashboardSummary: %v", err)
 		}

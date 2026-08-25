@@ -61,7 +61,7 @@ func (s *WebStore) GetFeedback(ctx context.Context, projectID, id string) (*stor
 }
 
 // ListReleases returns release list rows with health stats.
-func (s *WebStore) ListReleases(ctx context.Context, limit int) ([]store.ReleaseRow, error) {
+func (s *WebStore) ListReleases(ctx context.Context, projectID string, limit int) ([]store.ReleaseRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -75,12 +75,13 @@ func (s *WebStore) ListReleases(ctx context.Context, limit int) ([]store.Release
 		        MAX(rs.created_at)
 		 FROM releases r
 		 LEFT JOIN (
-		     SELECT release, COUNT(*) AS cnt FROM events WHERE release != '' GROUP BY release
+		     SELECT release, COUNT(*) AS cnt FROM events WHERE project_id = ? AND release != '' GROUP BY release
 		 ) e ON e.release = r.version
-		 LEFT JOIN release_sessions rs ON rs.release_version = r.version
+		 LEFT JOIN release_sessions rs ON rs.release_version = r.version AND rs.project_id = ?
+		 WHERE e.cnt IS NOT NULL OR rs.id IS NOT NULL
 		 GROUP BY r.version, r.created_at, e.cnt
 		 ORDER BY r.created_at DESC
-		 LIMIT ?`, limit)
+		 LIMIT ?`, projectID, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

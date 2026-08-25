@@ -73,6 +73,18 @@ func ListRecentLogs(ctx context.Context, db *sql.DB, orgSlug string, limit int) 
 	return SearchLogs(ctx, db, orgSlug, "", limit)
 }
 
+func ListRecentProjectLogs(ctx context.Context, db *sql.DB, projectID string, limit int) ([]store.DiscoverLog, error) {
+	query, args := buildDiscoverLogSearchQuery("", "", limit, 0)
+	query = strings.Replace(query, "WHERE ", "WHERE p.id = ? AND ", 1)
+	args = append([]any{strings.TrimSpace(projectID)}, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanDiscoverLogs(rows)
+}
+
 func SearchTransactions(ctx context.Context, db *sql.DB, orgSlug, rawQuery string, limit int) ([]store.DiscoverTransaction, error) {
 	query, args := buildDiscoverTransactionSearchQuery(orgSlug, rawQuery, limit, 0)
 	rows, err := db.QueryContext(ctx, query, args...)
@@ -85,6 +97,18 @@ func SearchTransactions(ctx context.Context, db *sql.DB, orgSlug, rawQuery strin
 
 func ListRecentTransactions(ctx context.Context, db *sql.DB, orgSlug string, limit int) ([]store.DiscoverTransaction, error) {
 	return SearchTransactions(ctx, db, orgSlug, "", limit)
+}
+
+func ListRecentProjectTransactions(ctx context.Context, db *sql.DB, projectID string, limit int) ([]store.DiscoverTransaction, error) {
+	query, args := buildDiscoverTransactionSearchQuery("", "", limit, 0)
+	query = strings.Replace(query, "WHERE ", "WHERE p.id = ? AND ", 1)
+	args = append([]any{strings.TrimSpace(projectID)}, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanDiscoverTransactions(rows)
 }
 
 func buildDiscoverIssueSearchQuery(orgSlug string, opts store.DiscoverIssueSearchOptions, offset int) (string, []any) {

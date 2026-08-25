@@ -138,6 +138,11 @@ type releaseRegressionReader interface {
 
 func (h *Handler) releasesPage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	scope, err := h.defaultPageScope(ctx)
+	if err != nil {
+		writeWebInternal(w, r, "Failed to resolve selected project.")
+		return
+	}
 
 	data := releasesData{
 		Title:        "Releases",
@@ -147,7 +152,7 @@ func (h *Handler) releasesPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.webStore != nil {
-		releases, err := h.listReleasesDB(ctx, 100)
+		releases, err := h.listReleasesDB(ctx, scope.ProjectID, 100)
 		if err == nil {
 			for _, rel := range releases {
 				data.Releases = append(data.Releases, releaseRow{
@@ -533,11 +538,11 @@ type dbRelease struct {
 	lastSessionAt    time.Time
 }
 
-func (h *Handler) listReleasesDB(ctx context.Context, limit int) ([]dbRelease, error) {
+func (h *Handler) listReleasesDB(ctx context.Context, projectID string, limit int) ([]dbRelease, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := h.webStore.ListReleases(ctx, limit)
+	rows, err := h.webStore.ListReleases(ctx, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

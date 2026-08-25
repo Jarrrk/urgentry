@@ -136,17 +136,17 @@ func (h *Handler) dashboardFromDB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := h.webStore.DashboardSummary(ctx, now)
+	summary, err := h.webStore.DashboardSummary(ctx, scope.ProjectID, now)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard summary.")
 		return
 	}
-	events, err := h.listRecentEventsDB(ctx, 20)
+	events, err := h.listRecentEventsDB(ctx, scope.ProjectID, 20)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard activity.")
 		return
 	}
-	burningRows, err := h.webStore.ListBurningIssues(ctx, now, 5)
+	burningRows, err := h.webStore.ListBurningIssues(ctx, scope.ProjectID, now, 5)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard issues.")
 		return
@@ -190,21 +190,21 @@ func (h *Handler) dashboardFromDB(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Beyond-Sentry features.
-	firstEventText := h.timeToFirstEvent(ctx)
-	errorBudget := h.computeErrorBudget(ctx)
+	firstEventText := h.timeToFirstEvent(ctx, scope.ProjectID)
+	errorBudget := h.computeErrorBudget(ctx, scope.ProjectID)
 	queryWidgets := h.dashboardQueryWidgets(ctx)
 	starterViews := analyticsStarterViewCards("")
-	recentLogs, err := h.dashboardRecentLogs(ctx, scope.OrganizationSlug, env, 5)
+	recentLogs, err := h.dashboardRecentLogs(ctx, scope.ProjectID, env, 5)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard logs.")
 		return
 	}
-	recentTraces, latencyLabel, latencyValue, latencyHint, err := h.dashboardRecentTransactions(ctx, scope.OrganizationSlug, env, 5)
+	recentTraces, latencyLabel, latencyValue, latencyHint, err := h.dashboardRecentTransactions(ctx, scope.ProjectID, env, 5)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard transactions.")
 		return
 	}
-	recentReleases, err := h.dashboardRecentReleases(ctx, 4)
+	recentReleases, err := h.dashboardRecentReleases(ctx, scope.ProjectID, 4)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard releases.")
 		return
@@ -281,7 +281,7 @@ func (h *Handler) dashboardQueryWidgets(ctx context.Context) []queryWidget {
 		if saved.QueryDoc.Dataset != discover.DatasetIssues || len(saved.QueryDoc.Select) > 0 || len(saved.QueryDoc.GroupBy) > 0 || saved.QueryDoc.Rollup != nil {
 			continue
 		}
-		count, err := h.savedSearchCount(ctx, saved.Filter, saved.Query, saved.Environment)
+		count, err := h.savedSearchCount(ctx, scope.ProjectID, saved.Filter, saved.Query, saved.Environment)
 		if err != nil {
 			continue
 		}
@@ -297,11 +297,11 @@ func (h *Handler) dashboardQueryWidgets(ctx context.Context) []queryWidget {
 	return widgets
 }
 
-func (h *Handler) savedSearchCount(ctx context.Context, filter, query, environment string) (int, error) {
+func (h *Handler) savedSearchCount(ctx context.Context, projectID, filter, query, environment string) (int, error) {
 	if environment != "" {
-		return h.webStore.CountSearchGroupsForEnvironment(ctx, environment, filter, query)
+		return h.webStore.CountSearchGroupsForEnvironment(ctx, projectID, environment, filter, query)
 	}
-	return h.webStore.CountSearchGroups(ctx, filter, query)
+	return h.webStore.CountSearchGroups(ctx, projectID, filter, query)
 }
 
 func savedSearchURL(filter, query, environment, sort string) string {

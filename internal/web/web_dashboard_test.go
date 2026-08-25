@@ -34,6 +34,69 @@ func TestDashboardPage(t *testing.T) {
 	}
 }
 
+func TestDashboardPageHonorsSelectedProject(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	insertGroup(t, db, "grp-overview-default", "Default overview issue", "default.go", "error", "unresolved")
+	insertEvent(t, db, "evt-overview-default", "grp-overview-default", "Default overview event", "error", "default failure")
+	if _, err := db.Exec(`INSERT INTO projects (id, organization_id, slug, name, platform, status)
+		VALUES ('mobile-proj', 'test-org', 'mobile-app', 'Mobile App', 'javascript', 'active')`); err != nil {
+		t.Fatalf("insert selected project: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO groups
+		(id, project_id, grouping_version, grouping_key, title, culprit, level, status, first_seen, last_seen, times_seen, short_id)
+		VALUES ('grp-overview-mobile', 'mobile-proj', 'urgentry-v1', 'grp-overview-mobile', 'Selected overview issue', 'mobile.js', 'error', 'unresolved', ?, ?, 1, 2)`, now, now); err != nil {
+		t.Fatalf("insert selected project issue: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO events
+		(id, project_id, event_id, group_id, level, event_type, title, message, platform, culprit, occurred_at, ingested_at, tags_json, payload_json, user_identifier)
+		VALUES ('evt-overview-mobile-internal', 'mobile-proj', 'evt-overview-mobile', 'grp-overview-mobile', 'error', 'error', 'Selected overview event', 'selected failure', 'javascript', 'mobile.js', ?, ?, '{}', '{}', 'mobile-user')`, now, now); err != nil {
+		t.Fatalf("insert selected project event: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO events
+		(id, project_id, event_id, group_id, level, event_type, title, message, platform, culprit, occurred_at, ingested_at, tags_json, payload_json) VALUES
+		('evt-overview-default-log-internal', 'test-proj', 'evt-overview-default-log', 'grp-overview-default', 'info', 'log', 'Default overview log', 'default log', 'go', 'default.go', ?, ?, '{}', '{"logger":"default.logger"}'),
+		('evt-overview-mobile-log-internal', 'mobile-proj', 'evt-overview-mobile-log', 'grp-overview-mobile', 'info', 'log', 'Selected overview log', 'selected log', 'javascript', 'mobile.js', ?, ?, '{}', '{"logger":"selected.logger"}')`, now, now, now, now); err != nil {
+		t.Fatalf("insert overview logs: %v", err)
+	}
+	traces := sqlite.NewTraceStore(db)
+	for _, transaction := range []store.StoredTransaction{
+		{ProjectID: "test-proj", EventID: "txn-overview-default", TraceID: "trace-overview-default", SpanID: "span-overview-default", Transaction: "default-overview-transaction", Op: "http.server", Status: "ok", StartTimestamp: time.Now().UTC().Add(-200 * time.Millisecond), EndTimestamp: time.Now().UTC(), DurationMS: 200},
+		{ProjectID: "mobile-proj", EventID: "txn-overview-mobile", TraceID: "trace-overview-mobile", SpanID: "span-overview-mobile", Transaction: "selected-overview-transaction", Op: "http.server", Status: "ok", StartTimestamp: time.Now().UTC().Add(-100 * time.Millisecond), EndTimestamp: time.Now().UTC(), DurationMS: 100},
+	} {
+		if err := traces.SaveTransaction(t.Context(), &transaction); err != nil {
+			t.Fatalf("insert overview transaction: %v", err)
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: selectedProjectCookie, Value: "test-org%2Fmobile-app"})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	body := getBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	for _, want := range []string{"Selected overview issue", "Selected overview event", "Selected overview log", "selected-overview-transaction"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("selected project dashboard content missing %q: %s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"Default overview issue", "Default overview event", "Default overview log", "default-overview-transaction"} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("default project dashboard content leaked into selected project: %s", body)
+		}
+	}
+}
+
 func TestDashboardSavedQueryWidgets(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()

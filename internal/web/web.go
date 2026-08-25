@@ -452,9 +452,9 @@ func (h *Handler) renderStatus(w http.ResponseWriter, status int, name string, d
 // Package-level aliases for shared helpers.
 func parseDBTime(s string) time.Time { return sqlutil.ParseDBTime(s) }
 
-// listRecentEventsDB returns the most recent events across all projects.
-func (h *Handler) listRecentEventsDB(ctx context.Context, limit int) ([]store.WebEvent, error) {
-	return h.webStore.ListRecentEvents(ctx, limit)
+// listRecentEventsDB returns the most recent events for a project.
+func (h *Handler) listRecentEventsDB(ctx context.Context, projectID string, limit int) ([]store.WebEvent, error) {
+	return h.webStore.ListRecentEvents(ctx, projectID, limit)
 }
 
 // countDistinctUsersForGroupDB returns distinct users for a specific group.

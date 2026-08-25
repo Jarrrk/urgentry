@@ -18,6 +18,7 @@ type projectSwitcherProject struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Slug        string `json:"slug"`
+	OrgName     string `json:"orgName"`
 	OrgSlug     string `json:"orgSlug"`
 	TeamSlug    string `json:"teamSlug,omitempty"`
 	Platform    string `json:"platform,omitempty"`
@@ -167,7 +168,7 @@ func (h *Handler) accessibleProjectSwitcherProjects(r *http.Request) ([]projectS
 	principal := auth.PrincipalFromContext(ctx)
 	if principal != nil && principal.User != nil && principal.User.ID != "" {
 		rows, err := h.db.QueryContext(ctx,
-			`SELECT p.id, p.name, p.slug, o.slug, COALESCE(t.slug, ''), COALESCE(p.platform, ''), COALESCE(p.status, 'active')
+			`SELECT p.id, p.name, p.slug, o.name, o.slug, COALESCE(t.slug, ''), COALESCE(p.platform, ''), COALESCE(p.status, 'active')
 			 FROM projects p
 			 JOIN organizations o ON o.id = p.organization_id
 			 JOIN organization_members m ON m.organization_id = o.id
@@ -184,7 +185,7 @@ func (h *Handler) accessibleProjectSwitcherProjects(r *http.Request) ([]projectS
 	}
 
 	rows, err := h.db.QueryContext(ctx,
-		`SELECT p.id, p.name, p.slug, o.slug, COALESCE(t.slug, ''), COALESCE(p.platform, ''), COALESCE(p.status, 'active')
+		`SELECT p.id, p.name, p.slug, o.name, o.slug, COALESCE(t.slug, ''), COALESCE(p.platform, ''), COALESCE(p.status, 'active')
 		 FROM projects p
 		 JOIN organizations o ON o.id = p.organization_id
 		 LEFT JOIN teams t ON t.id = p.team_id
@@ -201,7 +202,7 @@ func scanProjectSwitcherProjects(rows *sql.Rows) ([]projectSwitcherProject, erro
 	projects := []projectSwitcherProject{}
 	for rows.Next() {
 		var project projectSwitcherProject
-		if err := rows.Scan(&project.ID, &project.Name, &project.Slug, &project.OrgSlug, &project.TeamSlug, &project.Platform, &project.Status); err != nil {
+		if err := rows.Scan(&project.ID, &project.Name, &project.Slug, &project.OrgName, &project.OrgSlug, &project.TeamSlug, &project.Platform, &project.Status); err != nil {
 			return nil, err
 		}
 		project.Value = projectSwitcherValue(project.OrgSlug, project.Slug)

@@ -1,14 +1,14 @@
 {{template "base.html" .}}
 
 {{define "content"}}
-<div class="card guide-card">
+<div class="card guide-card" id="analyticsHomeGuide">
   <div class="section-header section-header-tight">{{.Guide.Title}}</div>
   <div class="empty-text">{{.Guide.Body}}</div>
   <ul class="guide-list">
     {{range .Guide.Steps}}<li>{{.}}</li>{{end}}
   </ul>
   <div class="guide-actions">
-    <a href="{{.Guide.ActionURL}}" class="btn btn-sm">{{.Guide.ActionLabel}}</a>
+    <a href="{{.Guide.ActionURL}}" class="btn btn-sm" onclick="dismissAnalyticsHomeGuide()">{{.Guide.ActionLabel}}</a>
   </div>
 </div>
 

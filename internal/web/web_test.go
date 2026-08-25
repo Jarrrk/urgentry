@@ -141,6 +141,36 @@ func TestDefaultPageScopeUsesSelectedProjectCookie(t *testing.T) {
 	}
 }
 
+func TestLogoutRevokesSession(t *testing.T) {
+	srv, _, sessionToken, csrf := setupAuthorizedTestServer(t)
+	defer srv.Close()
+
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp := sessionRequest(t, client, http.MethodPost, srv.URL+"/logout", sessionToken, csrf, "application/x-www-form-urlencoded", strings.NewReader(""))
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login/" {
+		t.Fatalf("logout status=%d location=%q, want 303 /login/", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	resp.Body.Close()
+
+	clearedSession := false
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "urgentry_session" && cookie.MaxAge < 0 {
+			clearedSession = true
+		}
+	}
+	if !clearedSession {
+		t.Fatal("logout did not clear the session cookie")
+	}
+
+	resp = sessionRequest(t, client, http.MethodGet, srv.URL+"/", sessionToken, "", "", nil)
+	if resp.StatusCode != http.StatusSeeOther || !strings.HasPrefix(resp.Header.Get("Location"), "/login/") {
+		t.Fatalf("revoked session status=%d location=%q, want login redirect", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	resp.Body.Close()
+}
+
 func TestMonitorsPage(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()

@@ -29,6 +29,11 @@ func TestDashboardPage(t *testing.T) {
 	if !strings.Contains(body, "Dashboard") {
 		t.Error("expected body to contain 'Dashboard'")
 	}
+	for _, snippet := range []string{`id="analyticsHomeGuide"`, `onclick="dismissAnalyticsHomeGuide()"`} {
+		if !strings.Contains(body, snippet) {
+			t.Errorf("expected dismissible analytics guide markup %q", snippet)
+		}
+	}
 	if !strings.Contains(body, "Events") && !strings.Contains(body, "events") {
 		t.Error("expected body to contain event metrics")
 	}

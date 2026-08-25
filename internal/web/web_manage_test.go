@@ -306,7 +306,7 @@ func TestManageProjectsCreatesProjectWithDefaultKey(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("project switcher status = %d, want 200; body: %s", resp.StatusCode, body)
 	}
-	for _, want := range []string{`"value":"test-org/mobile-app"`, `"settingsUrl":"/settings/project/mobile-app/general/"`} {
+	for _, want := range []string{`"orgName":"Test Org"`, `"value":"test-org/mobile-app"`, `"settingsUrl":"/settings/project/mobile-app/general/"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("project switcher missing %q in %s", want, body)
 		}
@@ -413,5 +413,11 @@ func TestManageSidebarLinkPresentInNav(t *testing.T) {
 	}
 	if !strings.Contains(body, `aria-label="Admin"`) {
 		t.Errorf("expected Admin nav item in sidebar")
+	}
+	settingsIndex := strings.Index(body, `aria-label="Settings"`)
+	logoutIndex := strings.Index(body, `aria-label="Logout"`)
+	adminIndex := strings.Index(body, `aria-label="Admin"`)
+	if settingsIndex < 0 || logoutIndex < settingsIndex || adminIndex < logoutIndex {
+		t.Errorf("expected Logout between Settings and Admin in sidebar")
 	}
 }

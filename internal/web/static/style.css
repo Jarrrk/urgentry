@@ -456,6 +456,10 @@ code, pre, .mono {
   gap: 2px;
 }
 
+.sidebar-logout-form {
+  display: contents;
+}
+
 /* Legacy sidebar nav compat */
 .sidebar-nav { display: contents; }
 .sidebar-nav a { display: none; }
@@ -5980,6 +5984,10 @@ body.auth-page {
 .guide-card {
   padding: 1rem;
   margin-bottom: 1.25rem;
+}
+
+html[data-analytics-home-guide-seen="true"] #analyticsHomeGuide {
+  display: none;
 }
 
 .guide-list {

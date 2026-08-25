@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/feather-icons/dist/feather.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=27">
+  <link rel="stylesheet" href="/static/style.css?v=28">
   <script src="https://unpkg.com/htmx.org@2.0.0"></script>
   <script>
     // Apply saved theme immediately (before paint) to avoid flash.
@@ -19,6 +19,9 @@
       }
       if (localStorage.getItem('urgentry_content_width') === 'full') {
         document.documentElement.setAttribute('data-content-width', 'full');
+      }
+      if (localStorage.getItem('urgentry_analytics_home_guide_seen') === '1') {
+        document.documentElement.setAttribute('data-analytics-home-guide-seen', 'true');
       }
     })();
 
@@ -40,6 +43,11 @@
 
     function urgentrySetCookie(name, value) {
       document.cookie = name + '=' + encodeURIComponent(value) + '; path=/; max-age=' + (86400 * 365) + '; SameSite=Lax';
+    }
+
+    function dismissAnalyticsHomeGuide() {
+      localStorage.setItem('urgentry_analytics_home_guide_seen', '1');
+      document.documentElement.setAttribute('data-analytics-home-guide-seen', 'true');
     }
   </script>
 </head>
@@ -611,7 +619,7 @@
           projects.forEach(function(project) {
             var option = document.createElement('option');
             option.value = project.value;
-            option.textContent = project.orgSlug + ' / ' + (project.name || project.slug);
+            option.textContent = (project.orgName || project.orgSlug) + ' / ' + (project.name || project.slug);
             if (project.value === data.selected) {
               option.selected = true;
               if (settings && project.settingsUrl) settings.href = project.settingsUrl;
@@ -713,6 +721,12 @@
       <i data-feather="settings"></i>
       <span class="nav-label">Settings</span>
     </a>
+    <form action="/logout" method="post" class="sidebar-logout-form">
+      <button type="submit" class="nav-item" aria-label="Logout">
+        <i data-feather="log-out"></i>
+        <span class="nav-label">Logout</span>
+      </button>
+    </form>
     <a href="/manage/" class="nav-item {{if eq .Nav "manage"}}active{{end}}" aria-label="Admin">
       <i data-feather="shield"></i>
       <span class="nav-label">Admin</span>

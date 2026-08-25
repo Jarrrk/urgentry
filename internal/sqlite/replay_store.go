@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,7 +40,8 @@ type replayReceiptHint struct {
 type replayEnvelopePayload struct {
 	EventID              string                     `json:"event_id"`
 	ReplayID             string                     `json:"replay_id"`
-	Timestamp            string                     `json:"timestamp"`
+	Timestamp            json.RawMessage            `json:"timestamp"`
+	ReplayStartTimestamp json.RawMessage            `json:"replay_start_timestamp"`
 	Platform             string                     `json:"platform"`
 	Release              string                     `json:"release"`
 	Environment          string                     `json:"environment"`
@@ -81,7 +83,7 @@ func parseReplayReceiptHint(payload []byte, fallbackEventID string) (replayRecei
 	hint := replayReceiptHint{
 		EventID:              firstNonEmptyText(parsed.EventID, fallbackEventID),
 		ReplayID:             firstNonEmptyText(parsed.ReplayID, parsed.EventID, fallbackEventID),
-		OccurredAt:           parseTimeAny(parsed.Timestamp),
+		OccurredAt:           parseReplayTime(firstNonEmptyRaw(parsed.ReplayStartTimestamp, parsed.Timestamp)),
 		Platform:             strings.TrimSpace(parsed.Platform),
 		Release:              strings.TrimSpace(parsed.Release),
 		Environment:          strings.TrimSpace(parsed.Environment),
@@ -128,18 +130,36 @@ func replayTraceIDs(tags map[string]any, contexts map[string]json.RawMessage) []
 	return uniqueReplayStrings(traceIDs)
 }
 
-func parseTimeAny(raw string) time.Time {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+func parseReplayTime(raw json.RawMessage) time.Time {
+	value := strings.TrimSpace(string(raw))
+	if value == "" || value == "null" {
 		return time.Time{}
 	}
-	if ts, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+	if unquoted, err := strconv.Unquote(value); err == nil {
+		value = strings.TrimSpace(unquoted)
+	}
+	if ts, err := time.Parse(time.RFC3339Nano, value); err == nil {
 		return ts.UTC()
 	}
-	if ts, err := time.Parse(time.RFC3339, raw); err == nil {
+	if ts, err := time.Parse(time.RFC3339, value); err == nil {
 		return ts.UTC()
+	}
+	seconds, err := strconv.ParseFloat(value, 64)
+	if err == nil && seconds > 0 {
+		whole, fraction := math.Modf(seconds)
+		return time.Unix(int64(whole), int64(fraction*float64(time.Second))).UTC()
 	}
 	return time.Time{}
+}
+
+func firstNonEmptyRaw(values ...json.RawMessage) json.RawMessage {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(string(value))
+		if trimmed != "" && trimmed != "null" {
+			return value
+		}
+	}
+	return nil
 }
 
 func uniqueReplayStrings(values []string) []string {
@@ -216,10 +236,6 @@ func stringFromAny(raw any) string {
 	default:
 		return ""
 	}
-}
-
-func bytesTrimSpace(raw []byte) []byte {
-	return []byte(strings.TrimSpace(string(raw)))
 }
 
 func maxInt64(a, b int64) int64 {

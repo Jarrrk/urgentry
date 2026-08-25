@@ -47,6 +47,7 @@ func RegisterAnalyticsRoutes(mux *http.ServeMux, routes AnalyticsRoutes) {
 	mux.Handle("GET /api/0/projects/{org_slug}/{proj_slug}/replays/{replay_id}/timeline/", handleListReplayTimeline(routes.DB, routes.Queries, routes.QueryGuard, routes.WithAuth(auth.Policy{Scope: auth.ScopeProjectRead, Resource: auth.ResourceProjectPath})))
 	mux.Handle("GET /api/0/projects/{org_slug}/{proj_slug}/replays/{replay_id}/panes/{pane}/", handleListReplayPane(routes.DB, routes.Queries, routes.QueryGuard, routes.WithAuth(auth.Policy{Scope: auth.ScopeProjectRead, Resource: auth.ResourceProjectPath})))
 	if routes.BlobStore != nil {
+		mux.Handle("GET /api/0/projects/{org_slug}/{proj_slug}/replays/{replay_id}/recording-events/", handleGetReplayRecordingEvents(routes.DB, routes.Queries, routes.BlobStore, routes.QueryGuard, routes.WithAuth(auth.Policy{Scope: auth.ScopeProjectRead, Resource: auth.ResourceProjectPath})))
 		mux.Handle("GET /api/0/projects/{org_slug}/{proj_slug}/replays/{replay_id}/assets/{attachment_id}/", handleDownloadReplayAsset(routes.DB, routes.Queries, routes.BlobStore, routes.QueryGuard, routes.WithAuth(auth.Policy{Scope: auth.ScopeProjectRead, Resource: auth.ResourceProjectPath})))
 	}
 	mux.Handle("GET /api/0/projects/{org_slug}/{proj_slug}/profiles/", handleListProfiles(routes.DB, routes.Queries, routes.QueryGuard, routes.WithAuth(auth.Policy{Scope: auth.ScopeProjectRead, Resource: auth.ResourceProjectPath})))

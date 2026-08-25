@@ -43,10 +43,18 @@
           <video controls preload="metadata" class="replay-video">
             <source src="{{.VideoURL}}" type="video/mp4">
           </video>
+          {{else if .RecordingURL}}
+          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/style.css">
+          <div id="rrwebReplayPlayer" class="replay-rrweb-player" data-recording-url="{{.RecordingURL}}">
+            <div class="replay-preview-placeholder">
+              <strong>Loading replay…</strong>
+              <span>Preparing the recorded browser session.</span>
+            </div>
+          </div>
           {{else}}
           <div class="replay-preview-placeholder">
-            <strong>No video asset available.</strong>
-            <span>Use the scrubber and focused pane below to inspect the indexed replay timeline.</span>
+            <strong>No replay recording available.</strong>
+            <span>This replay has no rrweb recording or video asset to play.</span>
           </div>
           {{end}}
         </div>
@@ -232,6 +240,42 @@
     </section>
   </div>
 </div>
+
+{{if .RecordingURL}}
+<script src="https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/index.js"></script>
+<script>
+  (function() {
+    var target = document.getElementById('rrwebReplayPlayer');
+    if (!target) return;
+    var url = target.getAttribute('data-recording-url');
+    fetch(url, { credentials: 'same-origin' })
+      .then(function(response) {
+        if (!response.ok) throw new Error('Replay recording could not be loaded (' + response.status + ').');
+        return response.json();
+      })
+      .then(function(payload) {
+        var events = payload && Array.isArray(payload.events) ? payload.events : [];
+        if (events.length === 0) throw new Error('The replay recording contains no events.');
+        if (typeof window.rrwebPlayer !== 'function') throw new Error('The replay player library did not load.');
+        target.innerHTML = '';
+        var width = Math.max(320, Math.floor(target.clientWidth || 960));
+        new window.rrwebPlayer({
+          target: target,
+          props: {
+            events: events,
+            autoPlay: false,
+            width: width,
+            height: Math.max(240, Math.floor(width * 0.5625))
+          }
+        });
+      })
+      .catch(function(error) {
+        target.innerHTML = '<div class="replay-preview-placeholder"><strong>Replay unavailable.</strong><span></span></div>';
+        target.querySelector('span').textContent = error && error.message ? error.message : 'The replay could not be loaded.';
+      });
+  })();
+</script>
+{{end}}
 
 <script>
   (function() {

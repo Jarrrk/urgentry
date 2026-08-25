@@ -59,12 +59,19 @@ func annotateReplayReceiptPayload(payload []byte, policy store.ReplayIngestPolic
 }
 
 func scrubReplayRecordingPayload(payload []byte, policy store.ReplayIngestPolicy) []byte {
-	var root any
-	if json.Unmarshal(payload, &root) != nil {
+	events, err := sqlite.DecodeReplayRecording(payload)
+	if err != nil {
 		return payload
 	}
-	root = scrubReplayValue(root, policy, false)
-	encoded, err := json.Marshal(root)
+	scrubbed := make([]any, 0, len(events))
+	for _, event := range events {
+		var root any
+		if json.Unmarshal(event, &root) != nil {
+			return payload
+		}
+		scrubbed = append(scrubbed, scrubReplayValue(root, policy, false))
+	}
+	encoded, err := json.Marshal(scrubbed)
 	if err != nil {
 		return payload
 	}

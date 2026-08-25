@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -150,6 +151,52 @@ func handleDownloadReplayAsset(db *sql.DB, queries telemetryquery.Service, blobs
 		w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeAttachmentFilename(matched.Name)+`"`)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
+	}
+}
+
+func handleGetReplayRecordingEvents(db *sql.DB, queries telemetryquery.Service, blobs sharedstore.BlobStore, guard sqlite.QueryGuard, auth authFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID, replayID, ok := guardReplayProjectRead(w, r, db, guard, auth, 500, true)
+		if !ok {
+			return
+		}
+		record, err := queries.GetReplay(r.Context(), projectID, replayID)
+		if err != nil {
+			if err == sharedstore.ErrNotFound {
+				httputil.WriteError(w, http.StatusNotFound, "Replay not found.")
+				return
+			}
+			httputil.WriteError(w, http.StatusInternalServerError, "Failed to load replay.")
+			return
+		}
+
+		resolver := blobstore.NewResolver(db, blobs)
+		events := make([]json.RawMessage, 0)
+		warnings := make([]string, 0)
+		for _, asset := range record.Assets {
+			if asset.Kind != "recording" && asset.Kind != "snapshot" {
+				continue
+			}
+			data, readErr := resolver.Read(r.Context(), blobstore.Attachment(projectID, asset.AttachmentID, asset.ObjectKey))
+			if readErr != nil {
+				warnings = append(warnings, asset.Name+": asset unavailable")
+				continue
+			}
+			decoded, decodeErr := sqlite.DecodeReplayRecording(data)
+			if decodeErr != nil {
+				warnings = append(warnings, asset.Name+": "+decodeErr.Error())
+				continue
+			}
+			events = append(events, decoded...)
+		}
+		if len(events) == 0 {
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "No playable replay recording is available.")
+			return
+		}
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"events":   events,
+			"warnings": warnings,
+		})
 	}
 }
 

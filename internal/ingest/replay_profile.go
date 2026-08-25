@@ -5,6 +5,8 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +20,8 @@ import (
 type replayEnvelopeEvent struct {
 	EventID     string            `json:"event_id"`
 	ReplayID    string            `json:"replay_id"`
-	Timestamp   string            `json:"timestamp"`
+	Timestamp   json.RawMessage   `json:"timestamp"`
+	ReplayStart json.RawMessage   `json:"replay_start_timestamp"`
 	Platform    string            `json:"platform"`
 	Release     string            `json:"release"`
 	Environment string            `json:"environment"`
@@ -77,7 +80,7 @@ func saveReplayEvent(ctx context.Context, replays store.ReplayIngestStore, event
 	if eventID == "" {
 		eventID = id.New()
 	}
-	occurredAt := parseSessionTime(replay.Timestamp)
+	occurredAt := parseReplayEnvelopeTime(replay.ReplayStart, replay.Timestamp)
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
 	}
@@ -123,6 +126,27 @@ func saveReplayEvent(ctx context.Context, replays store.ReplayIngestStore, event
 		return ""
 	}
 	return eventID
+}
+
+func parseReplayEnvelopeTime(values ...json.RawMessage) time.Time {
+	for _, raw := range values {
+		value := strings.TrimSpace(string(raw))
+		if value == "" || value == "null" {
+			continue
+		}
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = strings.TrimSpace(unquoted)
+		}
+		if parsed := parseSessionTime(value); !parsed.IsZero() {
+			return parsed
+		}
+		seconds, err := strconv.ParseFloat(value, 64)
+		if err == nil && seconds > 0 {
+			whole, fraction := math.Modf(seconds)
+			return time.Unix(int64(whole), int64(fraction*float64(time.Second))).UTC()
+		}
+	}
+	return time.Time{}
 }
 
 func saveProfileEvent(ctx context.Context, profiles store.ProfileIngestStore, events store.EventStore, projectID string, payload []byte) string {

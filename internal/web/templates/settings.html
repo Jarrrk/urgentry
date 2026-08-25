@@ -245,6 +245,9 @@
 
 <div class="settings-section">
   <div class="section-header">Code Mappings</div>
+  <p class="page-subtitle">
+    Turn stack-frame file paths into links to the corresponding source file. Stack Root is replaced by Source Root, then appended to Repository URL and Default Branch. Urgentry only builds browser links; it does not clone repositories, fetch source, or store repository credentials. Private links use your existing browser login. See <code>docs/code-mappings.md</code> for examples and forge compatibility.
+  </p>
   <form method="post" action="/settings/code-mappings" class="settings-form">
     <input type="hidden" name="project_id" value="{{.ProjectID}}">
     <div class="settings-form-grid">

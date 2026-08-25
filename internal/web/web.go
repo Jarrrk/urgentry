@@ -119,6 +119,7 @@ func NewHandler(deps Dependencies) (*Handler, error) {
 		"inc":       func(i int) int { return i + 1 },
 		"sub":       func(a, b int) int { return a - b },
 		"hasPrefix": strings.HasPrefix,
+		"truncate":  truncate,
 	}
 
 	// Parse base template first, then clone it for each page template.

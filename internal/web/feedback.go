@@ -62,10 +62,12 @@ func (h *Handler) feedbackPage(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type feedbackDetailData struct {
-	Title    string
-	Nav      string
-	Feedback feedbackRow
-	ReplayID string
+	Title        string
+	Nav          string
+	Environment  string
+	Environments []string
+	Feedback     feedbackRow
+	ReplayID     string
 }
 
 func (h *Handler) feedbackDetailPage(w http.ResponseWriter, r *http.Request) {
@@ -92,8 +94,10 @@ func (h *Handler) feedbackDetailPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := feedbackDetailData{
-		Title: "Feedback from " + row.Name,
-		Nav:   "feedback",
+		Title:        "Feedback from " + row.Name,
+		Nav:          "feedback",
+		Environment:  readSelectedEnvironment(r),
+		Environments: h.loadEnvironments(ctx),
 		Feedback: feedbackRow{
 			ID:        row.ID,
 			Name:      row.Name,

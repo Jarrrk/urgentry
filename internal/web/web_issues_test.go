@@ -33,6 +33,33 @@ func TestIssueListPage(t *testing.T) {
 	}
 }
 
+func TestIssueListPageTruncatesLongTitles(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	title := "RuntimeError: this issue title is deliberately much longer than sixty characters"
+	insertGroup(t, db, "grp-long-title", title, "main.go", "error", "unresolved")
+
+	resp, err := http.Get(srv.URL + "/issues/")
+	if err != nil {
+		t.Fatalf("GET /issues/: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	want := truncate(title, 60)
+	if !strings.Contains(body, ">"+want+"</a>") {
+		t.Fatalf("truncated title %q missing from body: %s", want, body)
+	}
+	if strings.Contains(body, ">"+title+"</a>") {
+		t.Fatalf("full title rendered as link text: %s", body)
+	}
+	if !strings.Contains(body, `title="`+title+`"`) {
+		t.Fatalf("full title missing from title attribute: %s", body)
+	}
+}
+
 func TestIssueListPageHonorsSelectedProject(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()

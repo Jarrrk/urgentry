@@ -341,6 +341,32 @@ func TestFeedbackPage(t *testing.T) {
 	_ = body
 }
 
+func TestFeedbackDetailPage(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO user_feedback
+		(id, project_id, name, email, comments, created_at) VALUES
+		('feedback-detail', 'test-proj', 'Player One', 'player@example.com', 'The game stopped responding', ?)`, now); err != nil {
+		t.Fatalf("insert feedback: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/feedback/feedback-detail/")
+	if err != nil {
+		t.Fatalf("GET /feedback/feedback-detail/: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	for _, want := range []string{"Feedback from Player One", "The game stopped responding", "player@example.com"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("feedback detail missing %q: %s", want, body)
+		}
+	}
+}
+
 func TestFeedbackPageHonorsSelectedProject(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()

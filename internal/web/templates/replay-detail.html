@@ -279,9 +279,11 @@
         if (!events.some(function(event) { return event.type === 2; })) {
           throw new Error('The replay recording contains no DOM snapshot.');
         }
-        if (typeof frame.contentWindow.rrwebPlayer !== 'function') throw new Error('The replay player library did not load.');
+        var rrwebPlayerExport = frame.contentWindow.rrwebPlayer;
+        var ReplayPlayer = rrwebPlayerExport && (rrwebPlayerExport.default || rrwebPlayerExport.Player || rrwebPlayerExport);
+        if (typeof ReplayPlayer !== 'function') throw new Error('The replay player library did not load.');
         var width = Math.max(320, Math.floor(target.clientWidth || 960));
-        new frame.contentWindow.rrwebPlayer({
+        new ReplayPlayer({
           target: frame.contentDocument.getElementById('player'),
           props: { events: events, autoPlay: false, width: width, height: Math.max(240, Math.floor(width * 0.5625)) }
         });

@@ -164,6 +164,8 @@ func TestReplayAndProfilePages(t *testing.T) {
 	}
 	if !strings.Contains(body, "Replay Player") ||
 		!strings.Contains(body, "replayScrubber") ||
+		!strings.Contains(body, "@sentry-internal/rrweb-player@2.40.0") ||
+		!strings.Contains(body, "event.type === 2") ||
 		!strings.Contains(body, "Payment failed") ||
 		!strings.Contains(body, "/issues/grp-web-profile-1/") ||
 		!strings.Contains(body, "/traces/0123456789abcdef0123456789abcdef/") ||

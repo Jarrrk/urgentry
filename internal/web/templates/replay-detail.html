@@ -257,10 +257,10 @@
         frame.title = 'Session replay';
         frame.onload = function() {
           var doc = frame.contentDocument;
-          doc.head.innerHTML = '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/style.css"><style>html,body,#player{margin:0;min-height:100%;background:#000}body{overflow:auto}</style>';
+          doc.head.innerHTML = '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@sentry-internal/rrweb-player@2.40.0/dist/style.css"><style>html,body,#player{margin:0;min-height:100%;background:#000}body{overflow:auto}</style>';
           doc.body.innerHTML = '<div id="player"></div>';
           var script = doc.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/rrweb-player@latest/dist/index.js';
+          script.src = 'https://cdn.jsdelivr.net/npm/@sentry-internal/rrweb-player@2.40.0/dist/rrweb-player.umd.cjs';
           script.onload = function() { resolve(frame); };
           script.onerror = function() { reject(new Error('The replay player library did not load.')); };
           doc.body.appendChild(script);
@@ -271,8 +271,14 @@
     ]).then(function(result) {
         var payload = result[0];
         var frame = result[1];
-        var events = payload && Array.isArray(payload.events) ? payload.events : [];
+        var events = payload && Array.isArray(payload.events) ? payload.events.filter(function(event) {
+          return event && typeof event.type === 'number' && Number.isFinite(event.timestamp);
+        }) : [];
         if (events.length === 0) throw new Error('The replay recording contains no events.');
+        events.sort(function(a, b) { return a.timestamp - b.timestamp; });
+        if (!events.some(function(event) { return event.type === 2; })) {
+          throw new Error('The replay recording contains no DOM snapshot.');
+        }
         if (typeof frame.contentWindow.rrwebPlayer !== 'function') throw new Error('The replay player library did not load.');
         var width = Math.max(320, Math.floor(target.clientWidth || 960));
         new frame.contentWindow.rrwebPlayer({

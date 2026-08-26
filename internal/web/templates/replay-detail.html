@@ -257,10 +257,10 @@
         frame.title = 'Session replay';
         frame.onload = function() {
           var doc = frame.contentDocument;
-          doc.head.innerHTML = '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@sentry-internal/rrweb-player@2.40.0/dist/style.css"><style>html,body,#player{margin:0;min-height:100%;background:#000}body{overflow:auto}</style>';
+          doc.head.innerHTML = '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/@sentry-internal/rrweb-player@2.40.0/dist/style.css"><style>html,body,#player{margin:0;min-height:100%;background:#000}body{overflow:auto}</style>';
           doc.body.innerHTML = '<div id="player"></div>';
           var script = doc.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/@sentry-internal/rrweb-player@2.40.0/dist/rrweb-player.umd.cjs';
+          script.src = 'https://unpkg.com/@sentry-internal/rrweb-player@2.40.0/dist/rrweb-player.umd.cjs';
           script.onload = function() { resolve(frame); };
           script.onerror = function() { reject(new Error('The replay player library did not load.')); };
           doc.body.appendChild(script);

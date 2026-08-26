@@ -70,7 +70,7 @@ func (s *ReplayStore) GetReplay(ctx context.Context, projectID, replayID string)
 	// recording source is replay_segments, so expose those segments directly if
 	// indexing is delayed or failed.
 	if len(assets) == 0 {
-		assets, err = s.loadReplayAssets(ctx, projectID, replayID)
+		assets, err = s.loadReplayAssets(ctx, projectID, replayID, replayID)
 		if err != nil {
 			return nil, err
 		}

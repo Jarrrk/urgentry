@@ -126,6 +126,12 @@ func (s *ReplayStore) upsertManifest(ctx context.Context, evt *store.StoredEvent
 		}
 	}
 	for _, asset := range assets {
+		// replay_assets remains the legacy attachment-derived index and its
+		// attachment_id column references event_attachments. First-class replay
+		// segments stay canonical in replay_segments and are loaded directly.
+		if strings.HasPrefix(asset.AttachmentID, "rseg-") {
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO replay_assets
 				(id, manifest_id, replay_id, attachment_id, kind, name, content_type, size_bytes, object_key, chunk_index, created_at)

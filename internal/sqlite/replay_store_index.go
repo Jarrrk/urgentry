@@ -45,7 +45,7 @@ func (s *ReplayStore) IndexReplay(ctx context.Context, projectID, replayID strin
 		hint.OccurredAt = firstNonZeroTime(hint.OccurredAt, evt.OccurredAt, evt.IngestedAt, time.Now().UTC())
 	}
 
-	assets, err := s.loadReplayAssets(ctx, projectID, hint.ReplayID)
+	assets, err := s.loadReplayAssets(ctx, projectID, evt.EventID, hint.ReplayID)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (s *ReplayStore) IndexReplay(ctx context.Context, projectID, replayID strin
 	return nil
 }
 
-func (s *ReplayStore) loadReplayAssets(ctx context.Context, projectID, replayID string) ([]store.ReplayAssetRef, error) {
+func (s *ReplayStore) loadReplayAssets(ctx context.Context, projectID, legacyEventID, replayID string) ([]store.ReplayAssetRef, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, segment_id, size_bytes, object_key, COALESCE(created_at, '')
 		  FROM replay_segments
@@ -129,7 +129,7 @@ func (s *ReplayStore) loadReplayAssets(ctx context.Context, projectID, replayID 
 		return nil, err
 	}
 	if len(assets) == 0 {
-		return s.loadLegacyReplayAssets(ctx, replayID)
+		return s.loadLegacyReplayAssets(ctx, legacyEventID, replayID)
 	}
 	sort.SliceStable(assets, func(i, j int) bool {
 		if assets[i].ChunkIndex != assets[j].ChunkIndex {
@@ -143,12 +143,12 @@ func (s *ReplayStore) loadReplayAssets(ctx context.Context, projectID, replayID 
 	return assets, nil
 }
 
-func (s *ReplayStore) loadLegacyReplayAssets(ctx context.Context, replayID string) ([]store.ReplayAssetRef, error) {
+func (s *ReplayStore) loadLegacyReplayAssets(ctx context.Context, legacyEventID, replayID string) ([]store.ReplayAssetRef, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, COALESCE(content_type, ''), size_bytes, object_key, COALESCE(created_at, '')
 		  FROM event_attachments
-		 WHERE event_id = ?
-		 ORDER BY created_at ASC, id ASC`, replayID)
+		 WHERE event_id IN (?, ?)
+		 ORDER BY created_at ASC, id ASC`, legacyEventID, replayID)
 	if err != nil {
 		return nil, fmt.Errorf("list legacy replay attachments: %w", err)
 	}

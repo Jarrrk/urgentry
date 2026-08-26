@@ -20,6 +20,10 @@ func persistEnvelopeSideEffects(ctx context.Context, deps IngestDeps, env *envel
 	replayAllowed := true
 	replayDropReason := ""
 	activeReplayEventID := baseEventID
+	activeReplaySegmentID := 0
+	activeReplaySegmentKnown := false
+	replayEventReceived := false
+	replaySegmentsStored := 0
 	replayReceiptPayload := []byte(nil)
 
 	if hasReplayEnvelopeItems(env.Items) {
@@ -50,31 +54,44 @@ func persistEnvelopeSideEffects(ctx context.Context, deps IngestDeps, env *envel
 				continue
 			}
 			payload := item.Payload
+			replayEventReceived = true
+			if segmentID, ok := replayEventSegmentID(item.Payload); ok {
+				activeReplaySegmentID = segmentID
+				activeReplaySegmentKnown = true
+			}
 			if replayPolicyLoaded {
 				replayReceiptPayload = append(replayReceiptPayload[:0], item.Payload...)
 				payload = annotateReplayReceiptPayload(replayReceiptPayload, replayPolicy, replayDropReason)
 			}
-			if replayEventID := saveReplayEvent(ctx, deps.ReplayStore, deps.EventStore, projectID, activeReplayEventID, payload); replayEventID != "" {
+			replayEventID, err := saveReplayEvent(ctx, deps.ReplayStore, deps.EventStore, projectID, activeReplayEventID, payload)
+			if err != nil {
+				return fmt.Errorf("save replay metadata: %w", err)
+			}
+			if replayEventID != "" {
 				activeReplayEventID = replayEventID
 				replayIndexes[replayEventID] = struct{}{}
 			}
-		case "replay_recording", "replay_recording_not_chunked", "replay_video":
+		case "replay_recording", "replay_recording_not_chunked":
 			if replayPolicyLoaded && !replayAllowed {
 				continue
 			}
-			filename := replayAttachmentFilename(item)
+			segmentID, segmentKnown := replayRecordingSegmentID(item.Payload)
+			if !segmentKnown && activeReplaySegmentKnown {
+				segmentID = activeReplaySegmentID
+				segmentKnown = true
+			}
+			if !segmentKnown {
+				segmentID = idx
+			}
 			payload := item.Payload
-			if replayPolicyLoaded && item.Header.Type != "replay_video" {
+			if replayPolicyLoaded {
 				payload = scrubReplayRecordingPayload(payload, replayPolicy)
 			}
 			if replayPolicyLoaded && replayDropReason == "" {
-				projectedBytes, err := replayProjectedAttachmentBytes(
-					ctx,
-					deps.AttachmentStore,
-					activeReplayEventID,
-					replayAttachmentID(projectID, activeReplayEventID, item.Header.Type, filename),
-					int64(len(payload)),
-				)
+				if deps.ReplayStore == nil {
+					return fmt.Errorf("save replay recording: replay store is unavailable")
+				}
+				projectedBytes, err := deps.ReplayStore.ProjectedReplayRecordingBytes(ctx, projectID, activeReplayEventID, segmentID, int64(len(payload)))
 				if err != nil {
 					return fmt.Errorf("enforce replay ingest policy: %w", err)
 				}
@@ -88,14 +105,24 @@ func persistEnvelopeSideEffects(ctx context.Context, deps IngestDeps, env *envel
 			if replayDropReason != "" {
 				continue
 			}
-			clone := item
-			clone.Payload = payload
-			clone.Header.Filename = filename
-			if err := saveReplayAttachment(ctx, deps.AttachmentStore, projectID, activeReplayEventID, clone); err != nil {
+			if deps.ReplayStore == nil {
+				return fmt.Errorf("save replay recording: replay store is unavailable")
+			}
+			if err := deps.ReplayStore.SaveReplayRecording(ctx, projectID, activeReplayEventID, segmentID, payload); err != nil {
 				return fmt.Errorf("save replay recording: %w", err)
 			}
+			logger := middleware.LogFromCtx(ctx)
+			replaySegmentsStored++
+			logger.Info().Str("project_id", projectID).Str("replay_id", activeReplayEventID).Int("segment_id", segmentID).Int("bytes", len(payload)).Msg("envelope: replay segment stored")
 			if strings.TrimSpace(activeReplayEventID) != "" {
 				replayIndexes[activeReplayEventID] = struct{}{}
+			}
+		case "replay_video":
+			if replayPolicyLoaded && !replayAllowed {
+				continue
+			}
+			if err := saveReplayAttachment(ctx, deps.AttachmentStore, projectID, activeReplayEventID, item); err != nil {
+				return fmt.Errorf("save replay video: %w", err)
 			}
 		case "profile":
 			saveProfileEvent(ctx, deps.ProfileStore, deps.EventStore, projectID, item.Payload)
@@ -116,9 +143,17 @@ func persistEnvelopeSideEffects(ctx context.Context, deps IngestDeps, env *envel
 	}
 
 	if replayPolicyLoaded && replayAllowed && replayDropReason != "" && len(replayReceiptPayload) > 0 {
-		if replayEventID := saveReplayEvent(ctx, deps.ReplayStore, deps.EventStore, projectID, activeReplayEventID, annotateReplayReceiptPayload(replayReceiptPayload, replayPolicy, replayDropReason)); replayEventID != "" {
+		replayEventID, err := saveReplayEvent(ctx, deps.ReplayStore, deps.EventStore, projectID, activeReplayEventID, annotateReplayReceiptPayload(replayReceiptPayload, replayPolicy, replayDropReason))
+		if err != nil {
+			return fmt.Errorf("save replay policy outcome: %w", err)
+		}
+		if replayEventID != "" {
 			replayIndexes[replayEventID] = struct{}{}
 		}
+	}
+	if replayEventReceived && replayAllowed && replayDropReason == "" && replaySegmentsStored == 0 {
+		logger := middleware.LogFromCtx(ctx)
+		logger.Warn().Str("project_id", projectID).Str("replay_id", activeReplayEventID).Msg("envelope: replay metadata received without a replay_recording item")
 	}
 	if deps.ReplayStore != nil {
 		for replayID := range replayIndexes {

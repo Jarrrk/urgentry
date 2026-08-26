@@ -31,6 +31,16 @@ type replayEnvelopeEvent struct {
 	Tags        map[string]string `json:"tags"`
 }
 
+func replayEventSegmentID(payload []byte) (int, bool) {
+	var event struct {
+		SegmentID *int `json:"segment_id"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil || event.SegmentID == nil || *event.SegmentID < 0 {
+		return 0, false
+	}
+	return *event.SegmentID, true
+}
+
 type replayRequest struct {
 	URL string `json:"url"`
 }
@@ -56,25 +66,21 @@ type profileEnvelopeEvent struct {
 	Profile     map[string]json.RawMessage `json:"profile"`
 }
 
-func saveReplayEvent(ctx context.Context, replays store.ReplayIngestStore, events store.EventStore, projectID, fallbackEventID string, payload []byte) string {
-	l := middleware.LogFromCtx(ctx)
+func saveReplayEvent(ctx context.Context, replays store.ReplayIngestStore, events store.EventStore, projectID, fallbackEventID string, payload []byte) (string, error) {
 	if replays != nil {
 		replayEventID, err := replays.SaveEnvelopeReplay(ctx, projectID, fallbackEventID, payload)
 		if err != nil {
-			l.Error().Err(err).Str("project_id", projectID).Msg("envelope: failed to save replay payload")
-			return ""
+			return "", fmt.Errorf("save replay payload: %w", err)
 		}
-		return replayEventID
+		return replayEventID, nil
 	}
 	if events == nil {
-		l.Debug().Str("project_id", projectID).Msg("envelope: replay_event received but no event store configured")
-		return ""
+		return "", fmt.Errorf("replay event store is unavailable")
 	}
 
 	var replay replayEnvelopeEvent
 	if err := json.Unmarshal(payload, &replay); err != nil {
-		l.Warn().Err(err).Str("project_id", projectID).Msg("envelope: failed to parse replay payload")
-		return ""
+		return "", fmt.Errorf("parse replay payload: %w", err)
 	}
 
 	eventID := normalizeEventIDField(firstNonEmpty(replay.EventID, replay.ReplayID))
@@ -123,10 +129,9 @@ func saveReplayEvent(ctx context.Context, replays store.ReplayIngestStore, event
 		NormalizedJSON: json.RawMessage(payload),
 		UserIdentifier: userIdentifier,
 	}); err != nil {
-		l.Error().Err(err).Str("project_id", projectID).Str("event_id", eventID).Msg("envelope: failed to save replay event")
-		return ""
+		return "", fmt.Errorf("save replay event: %w", err)
 	}
-	return eventID
+	return eventID, nil
 }
 
 func parseReplayEnvelopeTime(values ...json.RawMessage) time.Time {

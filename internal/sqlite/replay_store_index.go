@@ -45,7 +45,7 @@ func (s *ReplayStore) IndexReplay(ctx context.Context, projectID, replayID strin
 		hint.OccurredAt = firstNonZeroTime(hint.OccurredAt, evt.OccurredAt, evt.IngestedAt, time.Now().UTC())
 	}
 
-	assets, err := s.loadReplayAssets(ctx, evt.EventID, hint.ReplayID)
+	assets, err := s.loadReplayAssets(ctx, projectID, hint.ReplayID)
 	if err != nil {
 		return err
 	}
@@ -91,19 +91,68 @@ func (s *ReplayStore) IndexReplay(ctx context.Context, projectID, replayID strin
 	return nil
 }
 
-func (s *ReplayStore) loadReplayAssets(ctx context.Context, eventID, replayID string) ([]store.ReplayAssetRef, error) {
+func (s *ReplayStore) loadReplayAssets(ctx context.Context, projectID, replayID string) ([]store.ReplayAssetRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, segment_id, size_bytes, object_key, COALESCE(created_at, '')
+		  FROM replay_segments
+		 WHERE project_id = ? AND replay_id = ?
+		 ORDER BY segment_id ASC`,
+		projectID, replayID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list replay segments: %w", err)
+	}
+	defer rows.Close()
+
+	var assets []store.ReplayAssetRef
+	for rows.Next() {
+		var segmentID int
+		var recordID, objectKey, createdAt string
+		var sizeBytes int64
+		if err := rows.Scan(&recordID, &segmentID, &sizeBytes, &objectKey, &createdAt); err != nil {
+			return nil, err
+		}
+		assets = append(assets, store.ReplayAssetRef{
+			ID:           generateID(),
+			ReplayID:     replayID,
+			AttachmentID: recordID,
+			Kind:         "recording",
+			Name:         fmt.Sprintf("segment-%06d.rrweb", segmentID),
+			ContentType:  "application/x-sentry-replay",
+			SizeBytes:    sizeBytes,
+			ObjectKey:    objectKey,
+			ChunkIndex:   segmentID,
+			CreatedAt:    parseTime(createdAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(assets) == 0 {
+		return s.loadLegacyReplayAssets(ctx, replayID)
+	}
+	sort.SliceStable(assets, func(i, j int) bool {
+		if assets[i].ChunkIndex != assets[j].ChunkIndex {
+			return assets[i].ChunkIndex < assets[j].ChunkIndex
+		}
+		if !assets[i].CreatedAt.Equal(assets[j].CreatedAt) {
+			return assets[i].CreatedAt.Before(assets[j].CreatedAt)
+		}
+		return assets[i].Name < assets[j].Name
+	})
+	return assets, nil
+}
+
+func (s *ReplayStore) loadLegacyReplayAssets(ctx context.Context, replayID string) ([]store.ReplayAssetRef, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, COALESCE(content_type, ''), size_bytes, object_key, COALESCE(created_at, '')
 		  FROM event_attachments
 		 WHERE event_id = ?
-		 ORDER BY created_at ASC, id ASC`,
-		eventID,
-	)
+		 ORDER BY created_at ASC, id ASC`, replayID)
 	if err != nil {
-		return nil, fmt.Errorf("list replay attachments: %w", err)
+		return nil, fmt.Errorf("list legacy replay attachments: %w", err)
 	}
 	defer rows.Close()
-
 	var assets []store.ReplayAssetRef
 	for rows.Next() {
 		var attachmentID, name, contentType, objectKey, createdAt string
@@ -124,16 +173,7 @@ func (s *ReplayStore) loadReplayAssets(ctx context.Context, eventID, replayID st
 			CreatedAt:    parseTime(createdAt),
 		})
 	}
-	sort.SliceStable(assets, func(i, j int) bool {
-		if assets[i].ChunkIndex != assets[j].ChunkIndex {
-			return assets[i].ChunkIndex < assets[j].ChunkIndex
-		}
-		if !assets[i].CreatedAt.Equal(assets[j].CreatedAt) {
-			return assets[i].CreatedAt.Before(assets[j].CreatedAt)
-		}
-		return assets[i].Name < assets[j].Name
-	})
-	return assets, nil
+	return assets, rows.Err()
 }
 
 func (s *ReplayStore) buildReplayTimeline(ctx context.Context, projectID string, evt *store.StoredEvent, assets []store.ReplayAssetRef, hint replayReceiptHint) ([]store.ReplayTimelineItem, []string, error) {

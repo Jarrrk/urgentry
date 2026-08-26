@@ -94,7 +94,35 @@ func scanBridgeReplayManifests(rows *sql.Rows, limit int) ([]store.ReplayManifes
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(items) != 0 {
+		return items, nil
+	}
+	legacyRows, err := s.sourceDB.QueryContext(ctx, `
+		SELECT id, name, COALESCE(content_type, ''), size_bytes, object_key, COALESCE(created_at, '')
+		  FROM event_attachments
+		 WHERE event_id = ?
+		 ORDER BY created_at ASC, id ASC`, replayID)
+	if err != nil {
+		return nil, fmt.Errorf("list legacy replay assets: %w", err)
+	}
+	defer legacyRows.Close()
+	for legacyRows.Next() {
+		var item store.ReplayAssetRef
+		var createdAt string
+		if err := legacyRows.Scan(&item.AttachmentID, &item.Name, &item.ContentType, &item.SizeBytes, &item.ObjectKey, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan legacy replay asset: %w", err)
+		}
+		item.ID = item.AttachmentID
+		item.ReplayID = replayID
+		item.Kind = replayAssetKind(item.Name, item.ContentType)
+		item.ChunkIndex = replayChunkIndex(item.Name)
+		item.CreatedAt = sqlutil.ParseDBTime(createdAt)
+		items = append(items, item)
+	}
+	return items, legacyRows.Err()
 }
 
 func (s *bridgeService) GetReplay(ctx context.Context, projectID, replayID string) (*store.ReplayRecord, error) {
@@ -150,7 +178,7 @@ func (s *bridgeService) GetReplay(ctx context.Context, projectID, replayID strin
 	if err != nil {
 		return nil, err
 	}
-	assets, err := s.loadReplayAssets(ctx, manifest.EventRowID, replayID)
+	assets, err := s.loadReplayAssets(ctx, projectID, replayID)
 	if err != nil {
 		return nil, err
 	}
@@ -247,16 +275,16 @@ func (s *bridgeService) listReplayTimeline(ctx context.Context, projectID, repla
 	return items, rows.Err()
 }
 
-func (s *bridgeService) loadReplayAssets(ctx context.Context, eventID, replayID string) ([]store.ReplayAssetRef, error) {
-	if strings.TrimSpace(eventID) == "" {
+func (s *bridgeService) loadReplayAssets(ctx context.Context, projectID, replayID string) ([]store.ReplayAssetRef, error) {
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(replayID) == "" {
 		return nil, nil
 	}
 	rows, err := s.sourceDB.QueryContext(ctx, `
-		SELECT id, name, COALESCE(content_type, ''), size_bytes, object_key, COALESCE(created_at, '')
-		  FROM event_attachments
-		 WHERE event_id = ?
-		 ORDER BY created_at ASC, id ASC`,
-		eventID,
+		SELECT id, segment_id, size_bytes, object_key, COALESCE(created_at, '')
+		  FROM replay_segments
+		 WHERE project_id = ? AND replay_id = ?
+		 ORDER BY segment_id ASC`,
+		projectID, replayID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list replay assets: %w", err)
@@ -265,14 +293,17 @@ func (s *bridgeService) loadReplayAssets(ctx context.Context, eventID, replayID 
 	var items []store.ReplayAssetRef
 	for rows.Next() {
 		var item store.ReplayAssetRef
+		var segmentID int
 		var createdAt string
-		if err := rows.Scan(&item.AttachmentID, &item.Name, &item.ContentType, &item.SizeBytes, &item.ObjectKey, &createdAt); err != nil {
+		if err := rows.Scan(&item.AttachmentID, &segmentID, &item.SizeBytes, &item.ObjectKey, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan replay asset: %w", err)
 		}
 		item.ID = item.AttachmentID
 		item.ReplayID = replayID
-		item.Kind = replayAssetKind(item.Name, item.ContentType)
-		item.ChunkIndex = replayChunkIndex(item.Name)
+		item.Kind = "recording"
+		item.Name = fmt.Sprintf("segment-%06d.rrweb", segmentID)
+		item.ContentType = "application/x-sentry-replay"
+		item.ChunkIndex = segmentID
 		item.CreatedAt = sqlutil.ParseDBTime(createdAt)
 		items = append(items, item)
 	}

@@ -706,4 +706,24 @@ var migrationsEvents = []schemaMigration{
 			CREATE INDEX IF NOT EXISTS idx_events_project_ingested_event
 				ON events(project_id, ingested_at DESC, event_id DESC);
 	`},
+	{84, `
+			CREATE TABLE IF NOT EXISTS replay_segments (
+				id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				replay_id TEXT NOT NULL,
+				segment_id INTEGER NOT NULL,
+				size_bytes INTEGER NOT NULL,
+				object_key TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(project_id, replay_id, segment_id)
+			);
+			CREATE INDEX IF NOT EXISTS idx_replay_segments_replay
+				ON replay_segments(project_id, replay_id, segment_id);
+
+			DELETE FROM replay_timeline_items;
+			DELETE FROM replay_assets;
+			DELETE FROM replay_manifests;
+			DELETE FROM event_attachments WHERE LOWER(name) LIKE 'replay-%';
+	`},
 }

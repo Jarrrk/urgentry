@@ -24,6 +24,8 @@ const (
 // canonical replay manifests, asset references, and timeline indexes.
 type ReplayIngestStore interface {
 	SaveEnvelopeReplay(ctx context.Context, projectID, fallbackEventID string, payload []byte) (string, error)
+	ProjectedReplayRecordingBytes(ctx context.Context, projectID, replayID string, segmentID int, payloadSize int64) (int64, error)
+	SaveReplayRecording(ctx context.Context, projectID, replayID string, segmentID int, payload []byte) error
 	IndexReplay(ctx context.Context, projectID, replayID string) error
 }
 

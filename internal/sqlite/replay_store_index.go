@@ -2,11 +2,13 @@ package sqlite
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"crypto/sha1"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,7 +45,7 @@ func (s *ReplayStore) IndexReplay(ctx context.Context, projectID, replayID strin
 		hint.OccurredAt = firstNonZeroTime(hint.OccurredAt, evt.OccurredAt, evt.IngestedAt, time.Now().UTC())
 	}
 
-	assets, err := s.loadReplayAssets(ctx, evt.EventID, hint.ReplayID)
+	assets, err := s.loadReplayAssets(ctx, projectID, evt.EventID, hint.ReplayID)
 	if err != nil {
 		return err
 	}
@@ -89,19 +91,68 @@ func (s *ReplayStore) IndexReplay(ctx context.Context, projectID, replayID strin
 	return nil
 }
 
-func (s *ReplayStore) loadReplayAssets(ctx context.Context, eventID, replayID string) ([]store.ReplayAssetRef, error) {
+func (s *ReplayStore) loadReplayAssets(ctx context.Context, projectID, legacyEventID, replayID string) ([]store.ReplayAssetRef, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, COALESCE(content_type, ''), size_bytes, object_key, COALESCE(created_at, '')
-		  FROM event_attachments
-		 WHERE event_id = ?
-		 ORDER BY created_at ASC, id ASC`,
-		eventID,
+		SELECT id, segment_id, size_bytes, object_key, COALESCE(created_at, '')
+		  FROM replay_segments
+		 WHERE project_id = ? AND replay_id = ?
+		 ORDER BY segment_id ASC`,
+		projectID, replayID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list replay attachments: %w", err)
+		return nil, fmt.Errorf("list replay segments: %w", err)
 	}
 	defer rows.Close()
 
+	var assets []store.ReplayAssetRef
+	for rows.Next() {
+		var segmentID int
+		var recordID, objectKey, createdAt string
+		var sizeBytes int64
+		if err := rows.Scan(&recordID, &segmentID, &sizeBytes, &objectKey, &createdAt); err != nil {
+			return nil, err
+		}
+		assets = append(assets, store.ReplayAssetRef{
+			ID:           generateID(),
+			ReplayID:     replayID,
+			AttachmentID: recordID,
+			Kind:         "recording",
+			Name:         fmt.Sprintf("segment-%06d.rrweb", segmentID),
+			ContentType:  "application/x-sentry-replay",
+			SizeBytes:    sizeBytes,
+			ObjectKey:    objectKey,
+			ChunkIndex:   segmentID,
+			CreatedAt:    parseTime(createdAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(assets) == 0 {
+		return s.loadLegacyReplayAssets(ctx, legacyEventID, replayID)
+	}
+	sort.SliceStable(assets, func(i, j int) bool {
+		if assets[i].ChunkIndex != assets[j].ChunkIndex {
+			return assets[i].ChunkIndex < assets[j].ChunkIndex
+		}
+		if !assets[i].CreatedAt.Equal(assets[j].CreatedAt) {
+			return assets[i].CreatedAt.Before(assets[j].CreatedAt)
+		}
+		return assets[i].Name < assets[j].Name
+	})
+	return assets, nil
+}
+
+func (s *ReplayStore) loadLegacyReplayAssets(ctx context.Context, legacyEventID, replayID string) ([]store.ReplayAssetRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, COALESCE(content_type, ''), size_bytes, object_key, COALESCE(created_at, '')
+		  FROM event_attachments
+		 WHERE event_id IN (?, ?)
+		 ORDER BY created_at ASC, id ASC`, legacyEventID, replayID)
+	if err != nil {
+		return nil, fmt.Errorf("list legacy replay attachments: %w", err)
+	}
+	defer rows.Close()
 	var assets []store.ReplayAssetRef
 	for rows.Next() {
 		var attachmentID, name, contentType, objectKey, createdAt string
@@ -122,16 +173,7 @@ func (s *ReplayStore) loadReplayAssets(ctx context.Context, eventID, replayID st
 			CreatedAt:    parseTime(createdAt),
 		})
 	}
-	sort.SliceStable(assets, func(i, j int) bool {
-		if assets[i].ChunkIndex != assets[j].ChunkIndex {
-			return assets[i].ChunkIndex < assets[j].ChunkIndex
-		}
-		if !assets[i].CreatedAt.Equal(assets[j].CreatedAt) {
-			return assets[i].CreatedAt.Before(assets[j].CreatedAt)
-		}
-		return assets[i].Name < assets[j].Name
-	})
-	return assets, nil
+	return assets, rows.Err()
 }
 
 func (s *ReplayStore) buildReplayTimeline(ctx context.Context, projectID string, evt *store.StoredEvent, assets []store.ReplayAssetRef, hint replayReceiptHint) ([]store.ReplayTimelineItem, []string, error) {
@@ -232,7 +274,7 @@ func replayHintFromManifest(evt *store.StoredEvent, manifest *store.ReplayManife
 }
 
 func extractReplayTimeline(body []byte, hint replayReceiptHint, asset store.ReplayAssetRef, startIndex int) ([]store.ReplayTimelineItem, error) {
-	rawEvents, err := decodeReplayRecording(body)
+	rawEvents, err := DecodeReplayRecording(body)
 	if err != nil {
 		return nil, err
 	}
@@ -246,8 +288,52 @@ func extractReplayTimeline(body []byte, hint replayReceiptHint, asset store.Repl
 	return items, nil
 }
 
-func decodeReplayRecording(body []byte) ([]json.RawMessage, error) {
-	body = bytesTrimSpace(body)
+const maxDecodedReplayRecordingBytes = 64 << 20
+
+// DecodeReplayRecording accepts both Urgentry's original plain-JSON format and
+// the header-prefixed, optionally zlib-compressed format emitted by Sentry's
+// browser Replay SDK.
+func DecodeReplayRecording(body []byte) ([]json.RawMessage, error) {
+	// Only trim framing whitespace from the front. The recording body may be
+	// binary zlib data whose final byte happens to equal an ASCII whitespace
+	// character; trimming the tail would corrupt an otherwise valid stream.
+	body = bytes.TrimLeft(body, " \t\r\n")
+	if len(body) == 0 {
+		return nil, fmt.Errorf("empty replay recording payload")
+	}
+	if newline := bytes.IndexByte(body, '\n'); newline > 0 {
+		var header map[string]any
+		if json.Unmarshal(bytes.TrimSpace(body[:newline]), &header) == nil && len(header) > 0 {
+			body = body[newline+1:]
+		}
+	}
+	if items, err := decodeReplayRecordingJSON(body); err == nil {
+		return items, nil
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("unsupported replay recording payload")
+	}
+	decompressed, readErr := io.ReadAll(io.LimitReader(zr, maxDecodedReplayRecordingBytes+1))
+	closeErr := zr.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("decompress replay recording: %w", readErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("decompress replay recording: %w", closeErr)
+	}
+	if len(decompressed) > maxDecodedReplayRecordingBytes {
+		return nil, fmt.Errorf("decoded replay recording exceeds %d bytes", maxDecodedReplayRecordingBytes)
+	}
+	items, err := decodeReplayRecordingJSON(decompressed)
+	if err != nil {
+		return nil, fmt.Errorf("decode replay recording: %w", err)
+	}
+	return items, nil
+}
+
+func decodeReplayRecordingJSON(body []byte) ([]json.RawMessage, error) {
+	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
 		return nil, fmt.Errorf("empty replay recording payload")
 	}
@@ -288,7 +374,7 @@ func parseReplayTimelineItem(raw json.RawMessage, hint replayReceiptHint, asset 
 		PayloadRef: asset.ObjectKey,
 		MetaJSON:   compactReplayMeta(payload),
 	}
-	data := firstJSONObject(firstNonNil(payload["data"], payload["payload"], payload["message"], payload["meta"]))
+	data := replayTimelineData(payload)
 	item.Title = firstNonEmptyText(stringFromAny(payload["title"]), stringFromAny(data["title"]))
 	item.Level = firstNonEmptyText(strings.ToLower(stringFromAny(payload["level"])), strings.ToLower(stringFromAny(data["level"])))
 	item.Message = firstNonEmptyText(stringFromAny(payload["message"]), stringFromAny(data["message"]), stringFromAny(data["text"]))
@@ -323,13 +409,43 @@ func parseReplayTimelineItem(raw json.RawMessage, hint replayReceiptHint, asset 
 }
 
 func replayTimelineKind(payload map[string]any) string {
+	data := firstJSONObject(firstNonNil(payload["data"], payload["payload"], payload["message"], payload["meta"]))
+	switch intValue(payload["type"]) {
+	case 2: // rrweb FullSnapshot
+		return "snapshot"
+	case 4: // rrweb Meta (URL and viewport)
+		return "navigation"
+	case 3: // rrweb IncrementalSnapshot
+		switch intValue(data["source"]) {
+		case 2:
+			return "click"
+		case 11:
+			return "console"
+		}
+	case 5: // rrweb Custom
+		custom := strings.ToLower(stringFromAny(data["tag"]))
+		detail := firstJSONObject(data["payload"])
+		category := strings.ToLower(firstNonEmptyText(stringFromAny(detail["category"]), stringFromAny(detail["type"]), stringFromAny(detail["op"])))
+		joined := custom + " " + category
+		switch {
+		case strings.Contains(joined, "error") || strings.Contains(joined, "exception"):
+			return "error"
+		case strings.Contains(joined, "console"):
+			return "console"
+		case strings.Contains(joined, "click") || strings.Contains(joined, "tap"):
+			return "click"
+		case strings.Contains(joined, "navigation") || strings.Contains(joined, "route"):
+			return "navigation"
+		case strings.Contains(joined, "fetch") || strings.Contains(joined, "xhr") || strings.Contains(joined, "resource") || strings.Contains(joined, "http"):
+			return "network"
+		}
+	}
 	candidates := []string{
 		strings.ToLower(stringFromAny(payload["kind"])),
 		strings.ToLower(stringFromAny(payload["type"])),
 		strings.ToLower(stringFromAny(payload["category"])),
 		strings.ToLower(stringFromAny(payload["source"])),
 	}
-	data := firstJSONObject(firstNonNil(payload["data"], payload["payload"], payload["message"], payload["meta"]))
 	candidates = append(candidates,
 		strings.ToLower(stringFromAny(data["kind"])),
 		strings.ToLower(stringFromAny(data["type"])),
@@ -354,6 +470,14 @@ func replayTimelineKind(payload map[string]any) string {
 	}
 }
 
+func replayTimelineData(payload map[string]any) map[string]any {
+	data := firstJSONObject(firstNonNil(payload["data"], payload["payload"], payload["message"], payload["meta"]))
+	if nested := firstJSONObject(data["payload"]); len(nested) > 0 {
+		return nested
+	}
+	return data
+}
+
 func replayTimelineTSMS(payload map[string]any, startedAt time.Time) int64 {
 	for _, key := range []string{"ts_ms", "offset_ms", "offsetMs"} {
 		if value, ok := int64FromAny(payload[key]); ok {
@@ -365,7 +489,7 @@ func replayTimelineTSMS(payload map[string]any, startedAt time.Time) int64 {
 			return normalizeReplayTimestamp(value, startedAt)
 		}
 	}
-	data := firstJSONObject(firstNonNil(payload["data"], payload["payload"], payload["message"], payload["meta"]))
+	data := replayTimelineData(payload)
 	for _, key := range []string{"offset_ms", "offsetMs", "timestamp", "ts"} {
 		if value, ok := int64FromAny(data[key]); ok {
 			return normalizeReplayTimestamp(value, startedAt)

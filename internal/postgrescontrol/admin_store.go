@@ -28,6 +28,7 @@ var (
 	ErrInviteExpired   = sqlite.ErrInviteExpired
 	ErrInviteNotFound  = sqlite.ErrInviteNotFound
 	ErrDuplicateRecord = sqlite.ErrDuplicateRecord
+	ErrLastOwner       = sqlite.ErrLastOwner
 )
 
 type userLookup interface {
@@ -144,6 +145,18 @@ func (s *AdminStore) UpdateOrgMemberRole(ctx context.Context, orgSlug, memberID,
 		}
 		return nil, err
 	}
+	if rec.Role == "owner" && strings.TrimSpace(role) != "owner" {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM organizations WHERE id = $1 FOR UPDATE`, rec.OrganizationID).Scan(&rec.OrganizationID); err != nil {
+			return nil, err
+		}
+		var ownerCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM organization_members WHERE organization_id = $1 AND role = 'owner'`, rec.OrganizationID).Scan(&ownerCount); err != nil {
+			return nil, err
+		}
+		if ownerCount <= 1 {
+			return nil, ErrLastOwner
+		}
+	}
 
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE organization_members SET role = $1 WHERE id = $2`,
@@ -212,19 +225,37 @@ func (s *AdminStore) AddOrgMember(ctx context.Context, orgSlug, userID, role str
 }
 
 // RemoveOrgMember removes an organization membership and any team memberships under that org.
-func (s *AdminStore) RemoveOrgMember(ctx context.Context, orgSlug, userID string) (bool, error) {
+func (s *AdminStore) RemoveOrgMember(ctx context.Context, orgSlug, memberID string) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var orgID string
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM organizations WHERE slug = $1`, strings.TrimSpace(orgSlug)).Scan(&orgID); err != nil {
+	var orgID, userID, role string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT m.organization_id, m.user_id, m.role
+		 FROM organization_members m
+		 JOIN organizations o ON o.id = m.organization_id
+		 WHERE o.slug = $1 AND (m.id = $2 OR m.user_id = $2)`,
+		strings.TrimSpace(orgSlug), strings.TrimSpace(memberID),
+	).Scan(&orgID, &userID, &role); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}
 		return false, err
+	}
+	if role == "owner" {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM organizations WHERE id = $1 FOR UPDATE`, orgID).Scan(&orgID); err != nil {
+			return false, err
+		}
+		var ownerCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM organization_members WHERE organization_id = $1 AND role = 'owner'`, orgID).Scan(&ownerCount); err != nil {
+			return false, err
+		}
+		if ownerCount <= 1 {
+			return false, ErrLastOwner
+		}
 	}
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM team_members tm

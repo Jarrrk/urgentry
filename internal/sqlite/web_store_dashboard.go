@@ -10,7 +10,7 @@ import (
 
 // DashboardSummary returns the dashboard counters needed for the landing page
 // in one round-trip instead of several independent count queries.
-func (s *WebStore) DashboardSummary(ctx context.Context, now time.Time) (store.DashboardSummary, error) {
+func (s *WebStore) DashboardSummary(ctx context.Context, projectID string, now time.Time) (store.DashboardSummary, error) {
 	now = now.UTC()
 	currentStart := now.Add(-24 * time.Hour).Format(time.RFC3339)
 	previousStart := now.Add(-48 * time.Hour).Format(time.RFC3339)
@@ -18,21 +18,24 @@ func (s *WebStore) DashboardSummary(ctx context.Context, now time.Time) (store.D
 	var summary store.DashboardSummary
 	err := s.db.QueryRowContext(ctx,
 		`SELECT
-			(SELECT COUNT(*) FROM events),
-			(SELECT COUNT(*) FROM groups WHERE status = 'unresolved'),
-			(SELECT COUNT(*) FROM events WHERE occurred_at >= ?),
-			(SELECT COUNT(*) FROM events WHERE occurred_at >= ? AND occurred_at < ?),
-			(SELECT COUNT(*) FROM groups WHERE status = 'unresolved' AND first_seen >= ?),
-			(SELECT COUNT(*) FROM groups WHERE status = 'unresolved' AND first_seen >= ? AND first_seen < ?),
-			(SELECT COUNT(DISTINCT user_identifier) FROM events WHERE user_identifier != ''),
-			(SELECT COUNT(DISTINCT user_identifier) FROM events WHERE user_identifier != '' AND occurred_at >= ?),
-			(SELECT COUNT(DISTINCT user_identifier) FROM events WHERE user_identifier != '' AND occurred_at >= ? AND occurred_at < ?)`,
-		currentStart,
-		previousStart, currentStart,
-		currentStart,
-		previousStart, currentStart,
-		currentStart,
-		previousStart, currentStart,
+			(SELECT COUNT(*) FROM events WHERE project_id = ?),
+			(SELECT COUNT(*) FROM groups WHERE project_id = ? AND status = 'unresolved'),
+			(SELECT COUNT(*) FROM events WHERE project_id = ? AND occurred_at >= ?),
+			(SELECT COUNT(*) FROM events WHERE project_id = ? AND occurred_at >= ? AND occurred_at < ?),
+			(SELECT COUNT(*) FROM groups WHERE project_id = ? AND status = 'unresolved' AND first_seen >= ?),
+			(SELECT COUNT(*) FROM groups WHERE project_id = ? AND status = 'unresolved' AND first_seen >= ? AND first_seen < ?),
+			(SELECT COUNT(DISTINCT user_identifier) FROM events WHERE project_id = ? AND user_identifier != ''),
+			(SELECT COUNT(DISTINCT user_identifier) FROM events WHERE project_id = ? AND user_identifier != '' AND occurred_at >= ?),
+			(SELECT COUNT(DISTINCT user_identifier) FROM events WHERE project_id = ? AND user_identifier != '' AND occurred_at >= ? AND occurred_at < ?)`,
+		projectID,
+		projectID,
+		projectID, currentStart,
+		projectID, previousStart, currentStart,
+		projectID, currentStart,
+		projectID, previousStart, currentStart,
+		projectID,
+		projectID, currentStart,
+		projectID, previousStart, currentStart,
 	).Scan(
 		&summary.TotalEvents,
 		&summary.UnresolvedGroups,
@@ -49,7 +52,7 @@ func (s *WebStore) DashboardSummary(ctx context.Context, now time.Time) (store.D
 
 // ListBurningIssues returns the top unresolved issues with the steepest recent
 // event growth over the previous 4-day window.
-func (s *WebStore) ListBurningIssues(ctx context.Context, now time.Time, limit int) ([]store.BurningIssueSummary, error) {
+func (s *WebStore) ListBurningIssues(ctx context.Context, projectID string, now time.Time, limit int) ([]store.BurningIssueSummary, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -67,7 +70,7 @@ func (s *WebStore) ListBurningIssues(ctx context.Context, now time.Time, limit i
 				COALESCE(SUM(CASE WHEN e.occurred_at >= ? AND e.occurred_at < ? THEN 1 ELSE 0 END), 0) AS prev_count
 			FROM groups g
 			LEFT JOIN events e ON e.group_id = g.id AND e.occurred_at >= ?
-			WHERE g.status = 'unresolved'
+			WHERE g.project_id = ? AND g.status = 'unresolved'
 			GROUP BY g.id, g.title, g.last_seen
 		)
 		SELECT
@@ -83,6 +86,7 @@ func (s *WebStore) ListBurningIssues(ctx context.Context, now time.Time, limit i
 		currentStart,
 		previousStart, currentStart,
 		previousStart,
+		projectID,
 		limit,
 	)
 	if err != nil {
@@ -101,8 +105,8 @@ func (s *WebStore) ListBurningIssues(ctx context.Context, now time.Time, limit i
 	return items, rows.Err()
 }
 
-func (s *WebStore) CountEvents(ctx context.Context) (int, error) {
-	return s.count(ctx, "SELECT COUNT(*) FROM events")
+func (s *WebStore) CountEvents(ctx context.Context, projectID string) (int, error) {
+	return s.count(ctx, "SELECT COUNT(*) FROM events WHERE project_id = ?", projectID)
 }
 
 func (s *WebStore) CountGroups(ctx context.Context) (int, error) {

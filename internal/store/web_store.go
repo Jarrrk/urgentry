@@ -18,24 +18,24 @@ type WebStore interface {
 
 	// Events
 	ListIssueEvents(ctx context.Context, groupID string, limit int) ([]WebEvent, error)
-	ListRecentEvents(ctx context.Context, limit int) ([]WebEvent, error)
+	ListRecentEvents(ctx context.Context, projectID string, limit int) ([]WebEvent, error)
 	GetEvent(ctx context.Context, eventID string) (*WebEvent, error)
 	GetEventAtOffset(ctx context.Context, groupID string, offset int) (*WebEvent, error)
 	CountEventsForGroup(ctx context.Context, groupID string) (int, error)
 	CountDistinctUsersForGroup(ctx context.Context, groupID string) (int, error)
 
 	// Dashboard
-	DashboardSummary(ctx context.Context, now time.Time) (DashboardSummary, error)
-	ListBurningIssues(ctx context.Context, now time.Time, limit int) ([]BurningIssueSummary, error)
-	CountEvents(ctx context.Context) (int, error)
+	DashboardSummary(ctx context.Context, projectID string, now time.Time) (DashboardSummary, error)
+	ListBurningIssues(ctx context.Context, projectID string, now time.Time, limit int) ([]BurningIssueSummary, error)
+	CountEvents(ctx context.Context, projectID string) (int, error)
 	CountGroups(ctx context.Context) (int, error)
 	CountGroupsByStatus(ctx context.Context, status string) (int, error)
 	CountAllGroupsByStatus(ctx context.Context) (total, unresolved, resolved, ignored int, err error)
 	CountAllGroupsForEnvironment(ctx context.Context, env string) (total, unresolved, resolved, ignored int, err error)
 	CountGroupsSince(ctx context.Context, since time.Time, status string) (int, error)
 	CountGroupsForEnvironment(ctx context.Context, env, status string) (int, error)
-	CountSearchGroups(ctx context.Context, filter, search string) (int, error)
-	CountSearchGroupsForEnvironment(ctx context.Context, env, filter, search string) (int, error)
+	CountSearchGroups(ctx context.Context, projectID, filter, search string) (int, error)
+	CountSearchGroupsForEnvironment(ctx context.Context, projectID, env, filter, search string) (int, error)
 	CountEventsSince(ctx context.Context, since time.Time) (int, error)
 	CountDistinctUsers(ctx context.Context) (int, error)
 	CountDistinctUsersSince(ctx context.Context, since time.Time) (int, error)
@@ -51,16 +51,18 @@ type WebStore interface {
 	SearchIssues(ctx context.Context, rawQuery string, limit int) ([]WebIssue, error)
 	SearchDiscoverIssues(ctx context.Context, orgSlug, filter, rawQuery string, limit int) ([]DiscoverIssue, error)
 	ListRecentLogs(ctx context.Context, orgSlug string, limit int) ([]DiscoverLog, error)
+	ListRecentProjectLogs(ctx context.Context, projectID string, limit int) ([]DiscoverLog, error)
 	SearchLogs(ctx context.Context, orgSlug, rawQuery string, limit int) ([]DiscoverLog, error)
 	ListRecentTransactions(ctx context.Context, orgSlug string, limit int) ([]DiscoverTransaction, error)
+	ListRecentProjectTransactions(ctx context.Context, projectID string, limit int) ([]DiscoverTransaction, error)
 	SearchTransactions(ctx context.Context, orgSlug, rawQuery string, limit int) ([]DiscoverTransaction, error)
 
 	// Chart
 	EventChartData(ctx context.Context, groupID string, days int) ([]ChartPoint, error)
 
 	// Beyond/dashboard/releases/feedback/alerts
-	FirstEventAt(ctx context.Context) (*time.Time, error)
-	CountErrorLevelEvents(ctx context.Context) (int, error)
+	FirstEventAt(ctx context.Context, projectID string) (*time.Time, error)
+	CountErrorLevelEvents(ctx context.Context, projectID string) (int, error)
 	IssueDiffBase(ctx context.Context, groupID string) (*IssueDiffBase, *IssueDiffBase, error)
 	ListEventAttachments(ctx context.Context, eventID string) ([]EventAttachment, error)
 	ListIssueComments(ctx context.Context, groupID string, limit int) ([]IssueComment, error)
@@ -68,9 +70,9 @@ type WebStore interface {
 	GetIssueWorkflowState(ctx context.Context, groupID, userID string) (IssueWorkflowState, error)
 	ListSimilarIssues(ctx context.Context, groupID string, limit int) ([]WebIssue, error)
 	ListMergedChildIssues(ctx context.Context, groupID string, limit int) ([]WebIssue, error)
-	ListFeedback(ctx context.Context, limit int) ([]FeedbackRow, error)
-	GetFeedback(ctx context.Context, id string) (*FeedbackRow, error)
-	ListReleases(ctx context.Context, limit int) ([]ReleaseRow, error)
+	ListFeedback(ctx context.Context, projectID string, limit int) ([]FeedbackRow, error)
+	GetFeedback(ctx context.Context, projectID, id string) (*FeedbackRow, error)
+	ListReleases(ctx context.Context, projectID string, limit int) ([]ReleaseRow, error)
 	DefaultProjectID(ctx context.Context) (string, error)
 	ListAlertRules(ctx context.Context, limit int) ([]AlertRuleSummary, error)
 	ListAlertHistory(ctx context.Context, limit int) ([]AlertHistoryEntry, error)
@@ -82,6 +84,7 @@ type WebStore interface {
 // IssueListOpts controls filtering, searching, sorting, and pagination
 // for issue list queries.
 type IssueListOpts struct {
+	ProjectID   string
 	Filter      string    // "all", "unresolved", "resolved", "ignored"
 	Query       string    // free-text search across title/culprit
 	Environment string    // empty = all environments

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,9 +153,9 @@ func (f Fixture) EnvelopeBody() []byte {
 		string(f.spec.Payload()),
 	}
 	if len(f.recording) > 0 {
-		recording := compactReplayFixtureJSON(f.recording)
+		recording := append([]byte(`{"segment_id":1}`+"\n"), compactReplayFixtureJSON(f.recording)...)
 		lines = append(lines,
-			`{"type":"replay_recording","length":0,"filename":"segment-1.rrweb","content_type":"application/json"}`,
+			`{"type":"replay_recording","length":`+strconv.Itoa(len(recording))+`}`,
 			string(recording),
 		)
 	}

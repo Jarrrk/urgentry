@@ -33,6 +33,91 @@ func TestIssueListPage(t *testing.T) {
 	}
 }
 
+func TestIssueListDefaultsToUnresolved(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	insertGroup(t, db, "grp-default-open", "Open issue", "main.go", "error", "unresolved")
+	insertGroup(t, db, "grp-default-resolved", "Resolved issue", "main.go", "error", "resolved")
+
+	resp, err := http.Get(srv.URL + "/issues/")
+	if err != nil {
+		t.Fatalf("GET /issues/: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !strings.Contains(body, "Open issue") || strings.Contains(body, "Resolved issue") {
+		t.Fatalf("default issue view did not show only unresolved issues: %s", body)
+	}
+}
+
+func TestIssueListPageTruncatesLongTitles(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	title := "RuntimeError: this issue title is deliberately much longer than sixty characters"
+	insertGroup(t, db, "grp-long-title", title, "main.go", "error", "unresolved")
+
+	resp, err := http.Get(srv.URL + "/issues/")
+	if err != nil {
+		t.Fatalf("GET /issues/: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	want := truncate(title, 60)
+	if !strings.Contains(body, ">"+want+"</a>") {
+		t.Fatalf("truncated title %q missing from body: %s", want, body)
+	}
+	if strings.Contains(body, ">"+title+"</a>") {
+		t.Fatalf("full title rendered as link text: %s", body)
+	}
+	if !strings.Contains(body, `title="`+title+`"`) {
+		t.Fatalf("full title missing from title attribute: %s", body)
+	}
+}
+
+func TestIssueListPageHonorsSelectedProject(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	insertGroup(t, db, "grp-default-project", "Default project issue", "default.go", "error", "unresolved")
+	if _, err := db.Exec(`INSERT INTO projects (id, organization_id, slug, name, platform, status)
+		VALUES ('mobile-proj', 'test-org', 'mobile-app', 'Mobile App', 'javascript', 'active')`); err != nil {
+		t.Fatalf("insert selected project: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO groups
+		(id, project_id, grouping_version, grouping_key, title, culprit, level, status, first_seen, last_seen, times_seen, short_id)
+		VALUES ('grp-mobile-project', 'mobile-proj', 'urgentry-v1', 'grp-mobile-project', 'Selected project issue', 'mobile.js', 'error', 'unresolved', ?, ?, 1, 2)`, now, now); err != nil {
+		t.Fatalf("insert selected project issue: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/issues/", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: selectedProjectCookie, Value: "test-org%2Fmobile-app"})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /issues/: %v", err)
+	}
+	body := getBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "Selected project issue") {
+		t.Fatalf("selected project issue missing from body: %s", body)
+	}
+	if strings.Contains(body, "Default project issue") {
+		t.Fatalf("default project issue leaked into selected project: %s", body)
+	}
+}
+
 func TestIssueListSearch(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()
@@ -160,6 +245,12 @@ func TestIssueDetailPage(t *testing.T) {
 	insertEvent(t, db, "evt-detail-2", "grp-detail-1", "ValueError: cannot parse", "error", "another parse failure")
 	insertEvent(t, db, "evt-detail-similar", "grp-detail-similar", "ValueError: cannot parse", "error", "similar parse failure")
 	insertEvent(t, db, "evt-detail-merged", "grp-detail-merged", "ValueError: cannot parse payload", "error", "merged parse failure")
+	if err := sqlite.NewCodeMappingStore(db).CreateCodeMapping(t.Context(), &store.CodeMapping{
+		ProjectID: "test-proj", StackRoot: "highlife/", SourceRoot: "[highlife]/highlife/",
+		DefaultBranch: "master", RepoURL: "https://forge.hlf.is/HighLife/core", Provider: store.CodeMappingProviderForgejo,
+	}); err != nil {
+		t.Fatalf("create issue code mapping: %v", err)
+	}
 
 	_, err := db.Exec(
 		`UPDATE groups
@@ -176,6 +267,11 @@ func TestIssueDetailPage(t *testing.T) {
 		                        WHEN 'evt-detail-1' THEN '2026-03-28T12:00:00Z'
 		                        WHEN 'evt-detail-2' THEN '2026-03-28T12:05:00Z'
 		                        ELSE occurred_at
+		                      END,
+		        ingested_at = CASE event_id
+		                        WHEN 'evt-detail-1' THEN '2026-03-28T12:00:01Z'
+		                        WHEN 'evt-detail-2' THEN '2026-03-28T12:05:01Z'
+		                        ELSE ingested_at
 		                      END,
 		        release = CASE event_id
 		                    WHEN 'evt-detail-1' THEN 'web@1.0.0'
@@ -196,6 +292,10 @@ func TestIssueDetailPage(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("update issue detail event context: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE events SET payload_json = ? WHERE event_id = 'evt-detail-2'`,
+		`{"event_id":"evt-detail-2","exception":{"values":[{"type":"Error","value":"another parse failure","stacktrace":{"frames":[{"filename":"highlife/client/core/error.lua","function":"handler","lineno":8,"in_app":true}]}}]}}`); err != nil {
+		t.Fatalf("update issue stack trace: %v", err)
 	}
 	similar, err := sqlite.NewWebStore(db).ListSimilarIssues(t.Context(), "grp-detail-1", 6)
 	if err != nil {
@@ -219,6 +319,61 @@ func TestIssueDetailPage(t *testing.T) {
 		!strings.Contains(body, "Merged Issues") ||
 		!strings.Contains(body, "Changed Since First Seen") {
 		t.Errorf("expected richer workflow context in detail page, got body: %s", body)
+	}
+	if !strings.Contains(body, "All Events (2)") ||
+		!strings.Contains(body, "body.classList.toggle('is-hidden')") {
+		t.Errorf("expected functional All Events disclosure in detail page, got body: %s", body)
+	}
+	if !strings.Contains(body, `href="https://forge.hlf.is/HighLife/core/src/branch/master/%5Bhighlife%5D/highlife/client/core/error.lua#L8"`) {
+		t.Errorf("expected mapped Forgejo source link in issue detail page, got body: %s", body)
+	}
+}
+
+func TestIssueDetailPageShowsAndNavigatesUserFeedback(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	insertGroup(t, db, "grp-feedback-1", "FeedbackError: cannot continue", "client.lua", "error", "unresolved")
+	insertEvent(t, db, "evt-feedback-1", "grp-feedback-1", "FeedbackError: cannot continue", "error", "first feedback event")
+	insertEvent(t, db, "evt-feedback-2", "grp-feedback-1", "FeedbackError: cannot continue", "error", "second feedback event")
+	if _, err := db.Exec(
+		`INSERT INTO user_feedback (id, project_id, event_id, group_id, name, email, comments, created_at)
+		 VALUES
+		 ('feedback-new', 'test-proj', 'evt-feedback-2', 'grp-feedback-1', 'New Player', 'new@example.com', 'Newest player report', '2026-08-25T12:05:00Z'),
+		 ('feedback-old', 'test-proj', 'evt-feedback-1', NULL, 'Old Player', 'old@example.com', 'Older player report', '2026-08-25T12:00:00Z')`,
+	); err != nil {
+		t.Fatalf("insert issue feedback: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/issues/grp-feedback-1/")
+	if err != nil {
+		t.Fatalf("GET issue feedback: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	for _, want := range []string{"User Feedback", "Newest player report", "Feedback 1 of 2", "feedback_offset=1", "Open full feedback"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("issue feedback page missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Older player report") {
+		t.Fatalf("issue feedback page rendered more than the selected report: %s", body)
+	}
+
+	resp, err = http.Get(srv.URL + "/issues/grp-feedback-1/?feedback_offset=1")
+	if err != nil {
+		t.Fatalf("GET older issue feedback: %v", err)
+	}
+	body = getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("older feedback status = %d, want 200", resp.StatusCode)
+	}
+	for _, want := range []string{"Older player report", "Feedback 2 of 2", "feedback_offset=0", "Newer"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("older issue feedback page missing %q: %s", want, body)
+		}
 	}
 }
 

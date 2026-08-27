@@ -152,6 +152,7 @@ func (h *Handler) performancePage(w http.ResponseWriter, r *http.Request) {
 		h.render(w, "performance.html", data)
 		return
 	}
+	topQuery.Scope = discover.Scope{Kind: discover.ScopeKindProject, ProjectID: scope.ProjectID}
 	topResult, err := h.queries.ExecuteTable(r.Context(), topQuery)
 	if err != nil {
 		data.Error = "Failed to query top transactions: " + err.Error()
@@ -179,6 +180,7 @@ func (h *Handler) performancePage(w http.ResponseWriter, r *http.Request) {
 			TimeRange:     timeRange, // will be overwritten below
 		}, 10)
 		if err == nil {
+			prevQuery.Scope = discover.Scope{Kind: discover.ScopeKindProject, ProjectID: scope.ProjectID}
 			prevQuery.TimeRange = prevTR
 			prevResult, err := h.queries.ExecuteTable(r.Context(), prevQuery)
 			if err == nil {
@@ -215,9 +217,9 @@ func (h *Handler) performancePage(w http.ResponseWriter, r *http.Request) {
 					SUM(CASE WHEN duration_ms < ? THEN 1 ELSE 0 END) AS satisfied,
 					SUM(CASE WHEN duration_ms >= ? AND duration_ms < ? THEN 1 ELSE 0 END) AS tolerating
 				 FROM transactions
-				 WHERE start_timestamp >= ?
+				 WHERE project_id = ? AND start_timestamp >= ?
 				 GROUP BY transaction_name`,
-				apdexThresholdMs, apdexThresholdMs, frustrated, since,
+				apdexThresholdMs, apdexThresholdMs, frustrated, scope.ProjectID, since,
 			)
 			if qErr == nil {
 				defer rows.Close()
@@ -255,6 +257,7 @@ func (h *Handler) performancePage(w http.ResponseWriter, r *http.Request) {
 		h.render(w, "performance.html", data)
 		return
 	}
+	overallQuery.Scope = discover.Scope{Kind: discover.ScopeKindProject, ProjectID: scope.ProjectID}
 	overallResult, err := h.queries.ExecuteTable(r.Context(), overallQuery)
 	if err != nil {
 		data.Error = "Failed to query overall stats: " + err.Error()
@@ -283,14 +286,14 @@ func (h *Handler) performancePage(w http.ResponseWriter, r *http.Request) {
 					AVG(json_extract(measurements_json, '$.ttfb.value')) AS avg_ttfb,
 					AVG(json_extract(measurements_json, '$.fcp.value')) AS avg_fcp
 				 FROM transactions
-				 WHERE start_timestamp >= ?
+				 WHERE project_id = ? AND start_timestamp >= ?
 				   AND (json_extract(measurements_json, '$.lcp.value') IS NOT NULL
 				     OR json_extract(measurements_json, '$.cls.value') IS NOT NULL
 				     OR json_extract(measurements_json, '$.fcp.value') IS NOT NULL)
 				 GROUP BY transaction_name
 				 ORDER BY cnt DESC
 				 LIMIT 20`,
-				since,
+				scope.ProjectID, since,
 			)
 			if qErr == nil {
 				defer rows.Close()

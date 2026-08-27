@@ -75,4 +75,8 @@ var migrationsIntegration = []schemaMigration{
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_group_external_issues_install_group_key
 			ON group_external_issues(installation_id, group_id, key);
 	`},
+	{83, `
+		ALTER TABLE code_mappings
+			ADD COLUMN provider TEXT NOT NULL DEFAULT 'github';
+	`},
 }

@@ -274,7 +274,6 @@ func (h *Handler) guardReplayQueryPage(w http.ResponseWriter, r *http.Request, r
 		Estimate: sqlite.QueryEstimate{
 			Workload: sqlite.QueryWorkloadReplays,
 			Limit:    limit,
-			Query:    replayID,
 			Detail:   detail,
 		},
 	})

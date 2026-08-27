@@ -141,6 +141,36 @@ func TestDefaultPageScopeUsesSelectedProjectCookie(t *testing.T) {
 	}
 }
 
+func TestLogoutRevokesSession(t *testing.T) {
+	srv, _, sessionToken, csrf := setupAuthorizedTestServer(t)
+	defer srv.Close()
+
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp := sessionRequest(t, client, http.MethodPost, srv.URL+"/logout", sessionToken, csrf, "application/x-www-form-urlencoded", strings.NewReader(""))
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login/" {
+		t.Fatalf("logout status=%d location=%q, want 303 /login/", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	resp.Body.Close()
+
+	clearedSession := false
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "urgentry_session" && cookie.MaxAge < 0 {
+			clearedSession = true
+		}
+	}
+	if !clearedSession {
+		t.Fatal("logout did not clear the session cookie")
+	}
+
+	resp = sessionRequest(t, client, http.MethodGet, srv.URL+"/", sessionToken, "", "", nil)
+	if resp.StatusCode != http.StatusSeeOther || !strings.HasPrefix(resp.Header.Get("Location"), "/login/") {
+		t.Fatalf("revoked session status=%d location=%q, want login redirect", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	resp.Body.Close()
+}
+
 func TestMonitorsPage(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()
@@ -311,6 +341,70 @@ func TestFeedbackPage(t *testing.T) {
 	_ = body
 }
 
+func TestFeedbackDetailPage(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO user_feedback
+		(id, project_id, name, email, comments, created_at) VALUES
+		('feedback-detail', 'test-proj', 'Player One', 'player@example.com', 'The game stopped responding', ?)`, now); err != nil {
+		t.Fatalf("insert feedback: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/feedback/feedback-detail/")
+	if err != nil {
+		t.Fatalf("GET /feedback/feedback-detail/: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	for _, want := range []string{"Feedback from Player One", "The game stopped responding", "player@example.com"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("feedback detail missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestFeedbackPageHonorsSelectedProject(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	if _, err := db.Exec(`INSERT INTO projects (id, organization_id, slug, name, platform, status)
+		VALUES ('mobile-proj', 'test-org', 'mobile-app', 'Mobile App', 'javascript', 'active')`); err != nil {
+		t.Fatalf("insert selected project: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO user_feedback
+		(id, project_id, name, email, comments, created_at) VALUES
+		('feedback-default', 'test-proj', 'Default User', 'default@example.com', 'Default project feedback', ?),
+		('feedback-mobile', 'mobile-proj', 'Mobile User', 'mobile@example.com', 'Selected project feedback', ?)`, now, now); err != nil {
+		t.Fatalf("insert feedback: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/feedback/", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: selectedProjectCookie, Value: "test-org%2Fmobile-app"})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /feedback/: %v", err)
+	}
+	body := getBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "Selected project feedback") {
+		t.Fatalf("selected project feedback missing from body: %s", body)
+	}
+	if strings.Contains(body, "Default project feedback") {
+		t.Fatalf("default project feedback leaked into selected project: %s", body)
+	}
+}
+
 func TestFeedbackPageFailsWhenStoreErrors(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()
@@ -328,8 +422,8 @@ func TestFeedbackPageFailsWhenStoreErrors(t *testing.T) {
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", resp.StatusCode)
 	}
-	if !strings.Contains(body, "Failed to load feedback.") {
-		t.Fatalf("body = %q, want feedback error", body)
+	if !strings.Contains(body, "Failed to resolve selected project.") {
+		t.Fatalf("body = %q, want project scope error", body)
 	}
 }
 

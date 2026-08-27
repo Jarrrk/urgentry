@@ -147,7 +147,7 @@ func TestWebStoreReadPaths(t *testing.T) {
 	if err != nil || len(events) != 2 {
 		t.Fatalf("ListIssueEvents = %d, %v", len(events), err)
 	}
-	recent, err := ws.ListRecentEvents(ctx, 10)
+	recent, err := ws.ListRecentEvents(ctx, "test-proj-id", 10)
 	if err != nil || len(recent) != 4 {
 		t.Fatalf("ListRecentEvents = %d, %v", len(recent), err)
 	}
@@ -165,7 +165,7 @@ func TestWebStoreReadPaths(t *testing.T) {
 	if count, err := ws.CountDistinctUsersForGroup(ctx, "grp-1"); err != nil || count != 2 {
 		t.Fatalf("CountDistinctUsersForGroup = %d, %v", count, err)
 	}
-	if count, err := ws.CountEvents(ctx); err != nil || count != 4 {
+	if count, err := ws.CountEvents(ctx, "test-proj-id"); err != nil || count != 4 {
 		t.Fatalf("CountEvents = %d, %v", count, err)
 	}
 	if count, err := ws.CountGroups(ctx); err != nil || count != 2 {
@@ -180,10 +180,10 @@ func TestWebStoreReadPaths(t *testing.T) {
 	if count, err := ws.CountGroupsForEnvironment(ctx, "production", ""); err != nil || count != 2 {
 		t.Fatalf("CountGroupsForEnvironment = %d, %v", count, err)
 	}
-	if count, err := ws.CountSearchGroups(ctx, "all", "ImportError"); err != nil || count != 1 {
+	if count, err := ws.CountSearchGroups(ctx, "test-proj-id", "all", "ImportError"); err != nil || count != 1 {
 		t.Fatalf("CountSearchGroups = %d, %v", count, err)
 	}
-	if count, err := ws.CountSearchGroupsForEnvironment(ctx, "production", "unresolved", "ImportError"); err != nil || count != 1 {
+	if count, err := ws.CountSearchGroupsForEnvironment(ctx, "test-proj-id", "production", "unresolved", "ImportError"); err != nil || count != 1 {
 		t.Fatalf("CountSearchGroupsForEnvironment = %d, %v", count, err)
 	}
 	if total, unresolved, resolved, ignored, err := ws.CountAllGroupsByStatus(ctx); err != nil || total != 2 || unresolved != 1 || resolved != 1 || ignored != 0 {
@@ -201,14 +201,14 @@ func TestWebStoreReadPaths(t *testing.T) {
 	if count, err := ws.CountDistinctUsersSince(ctx, now.Add(-3*time.Hour)); err != nil || count != 4 {
 		t.Fatalf("CountDistinctUsersSince = %d, %v", count, err)
 	}
-	summary, err := ws.DashboardSummary(ctx, now)
+	summary, err := ws.DashboardSummary(ctx, "test-proj-id", now)
 	if err != nil {
 		t.Fatalf("DashboardSummary: %v", err)
 	}
 	if summary.TotalEvents != 4 || summary.UnresolvedGroups != 1 || summary.EventsCurrent != 4 || summary.EventsPrevious != 0 || summary.ErrorsCurrent != 1 || summary.ErrorsPrevious != 0 || summary.UsersTotal != 4 || summary.UsersCurrent != 4 || summary.UsersPrevious != 0 {
 		t.Fatalf("DashboardSummary = %+v", summary)
 	}
-	burning, err := ws.ListBurningIssues(ctx, now, 5)
+	burning, err := ws.ListBurningIssues(ctx, "test-proj-id", now, 5)
 	if err != nil {
 		t.Fatalf("ListBurningIssues: %v", err)
 	}
@@ -235,10 +235,10 @@ func TestWebStoreReadPaths(t *testing.T) {
 	if chart, err := ws.EventChartData(ctx, "grp-1", 7); err != nil || len(chart) != 7 {
 		t.Fatalf("EventChartData = %+v, %v", chart, err)
 	}
-	if firstAt, err := ws.FirstEventAt(ctx); err != nil || firstAt == nil {
+	if firstAt, err := ws.FirstEventAt(ctx, "test-proj-id"); err != nil || firstAt == nil {
 		t.Fatalf("FirstEventAt = %v, %v", firstAt, err)
 	}
-	if count, err := ws.CountErrorLevelEvents(ctx); err != nil || count != 3 {
+	if count, err := ws.CountErrorLevelEvents(ctx, "test-proj-id"); err != nil || count != 3 {
 		t.Fatalf("CountErrorLevelEvents = %d, %v", count, err)
 	}
 	if items, err := ws.SearchIssues(ctx, "event.type:error ImportError", 5); err != nil || len(items) != 1 || items[0].ID != "grp-1" {
@@ -266,10 +266,10 @@ func TestWebStoreReadPaths(t *testing.T) {
 	if attachments, err := ws.ListEventAttachments(ctx, "evt-1"); err != nil || len(attachments) != 1 {
 		t.Fatalf("ListEventAttachments = %+v, %v", attachments, err)
 	}
-	if feedback, err := ws.ListFeedback(ctx, 10); err != nil || len(feedback) != 1 {
+	if feedback, err := ws.ListFeedback(ctx, "test-proj-id", 10); err != nil || len(feedback) != 1 {
 		t.Fatalf("ListFeedback = %+v, %v", feedback, err)
 	}
-	releases, err := ws.ListReleases(ctx, 10)
+	releases, err := ws.ListReleases(ctx, "test-proj-id", 10)
 	if err != nil || len(releases) != 2 {
 		t.Fatalf("ListReleases = %+v, %v", releases, err)
 	}

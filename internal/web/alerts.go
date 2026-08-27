@@ -76,46 +76,38 @@ func (h *Handler) alertsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	scope, err := h.defaultPageScope(ctx)
+	if err != nil {
+		writeWebInternal(w, r, "Failed to resolve selected project.")
+		return
+	}
 	history, err := h.webStore.ListAlertHistory(ctx, 50)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load alerts.")
 		return
 	}
-	defaultProjectID := ""
-	if id, err := h.webStore.DefaultProjectID(ctx); err == nil {
-		defaultProjectID = id
-	}
+	defaultProjectID := scope.ProjectID
 
 	var ruleSource []alert.Rule
 	var deliverySource []notify.DeliveryRecord
 	if h.catalog != nil && h.alerts != nil {
-		projects, err := h.catalog.ListProjects(ctx, "")
+		projectRules, err := h.alerts.ListRules(ctx, scope.ProjectID)
 		if err != nil {
 			writeWebInternal(w, r, "Failed to load alerts.")
 			return
 		}
-		if defaultProjectID == "" && len(projects) > 0 {
-			defaultProjectID = projects[0].ID
+		for _, item := range projectRules {
+			if item != nil {
+				ruleSource = append(ruleSource, *item)
+			}
 		}
-		for _, project := range projects {
-			projectRules, err := h.alerts.ListRules(ctx, project.ID)
+		if h.deliveries != nil {
+			rows, err := h.deliveries.ListRecent(ctx, scope.ProjectID, 50)
 			if err != nil {
 				writeWebInternal(w, r, "Failed to load alerts.")
 				return
 			}
-			for _, item := range projectRules {
-				if item != nil {
-					ruleSource = append(ruleSource, *item)
-				}
-			}
-			if h.deliveries != nil {
-				rows, err := h.deliveries.ListRecent(ctx, project.ID, 50)
-				if err != nil {
-					writeWebInternal(w, r, "Failed to load alerts.")
-					return
-				}
-				deliverySource = append(deliverySource, rows...)
-			}
+			deliverySource = append(deliverySource, rows...)
 		}
 	} else {
 		overview, err := h.webStore.AlertsOverview(ctx, 100, 50, 50)
@@ -123,12 +115,16 @@ func (h *Handler) alertsPage(w http.ResponseWriter, r *http.Request) {
 			writeWebInternal(w, r, "Failed to load alerts.")
 			return
 		}
-		defaultProjectID = overview.DefaultProjectID
 		for _, item := range overview.Rules {
-			ruleSource = append(ruleSource, alertRuleSummaryToRule(item))
+			if item.ProjectID == scope.ProjectID {
+				ruleSource = append(ruleSource, alertRuleSummaryToRule(item))
+			}
 		}
 		history = overview.History
 		for _, item := range overview.Deliveries {
+			if item.ProjectID != scope.ProjectID {
+				continue
+			}
 			deliverySource = append(deliverySource, notify.DeliveryRecord{
 				ID:             item.ID,
 				ProjectID:      item.ProjectID,
@@ -149,6 +145,10 @@ func (h *Handler) alertsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if defaultProjectID == "" {
 		defaultProjectID = "default-project"
+	}
+	ruleIDs := make(map[string]struct{}, len(ruleSource))
+	for _, rule := range ruleSource {
+		ruleIDs[rule.ID] = struct{}{}
 	}
 	slices.SortFunc(ruleSource, func(a, b alert.Rule) int {
 		return b.CreatedAt.Compare(a.CreatedAt)
@@ -172,6 +172,9 @@ func (h *Handler) alertsPage(w http.ResponseWriter, r *http.Request) {
 
 	historyRows := make([]alertHistoryRow, 0, len(history))
 	for _, item := range history {
+		if _, ok := ruleIDs[item.RuleID]; !ok {
+			continue
+		}
 		historyRows = append(historyRows, alertHistoryRow{
 			ID:       item.ID,
 			RuleID:   item.RuleID,

@@ -244,6 +244,17 @@ func (a *Authorizer) AuthorizeProject(r *http.Request, projectID, scope string) 
 	})
 }
 
+// AuthorizeOrganization checks the current principal against an organization-scoped permission.
+func (a *Authorizer) AuthorizeOrganization(r *http.Request, organizationSlug, scope string) error {
+	organization, err := a.store.ResolveOrganizationBySlug(r.Context(), strings.TrimSpace(organizationSlug))
+	if err != nil || organization == nil {
+		return ErrForbidden
+	}
+	return a.authorize(r.Context(), PrincipalFromContext(r.Context()), scope, &resolvedResource{
+		organizationID: organization.ID,
+	})
+}
+
 // AuthorizeAnyMembership checks the current principal against a scope that is valid
 // across any organization membership.
 func (a *Authorizer) AuthorizeAnyMembership(r *http.Request, scope string) error {

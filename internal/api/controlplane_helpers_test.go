@@ -24,6 +24,10 @@ func (c testCatalog) GetOrganization(context.Context, string) (*sharedstore.Orga
 	return c.org, nil
 }
 
+func (c testCatalog) CreateOrganization(context.Context, sharedstore.OrganizationCreateInput, string) (*sharedstore.Organization, error) {
+	return nil, nil
+}
+
 func (c testCatalog) ListProjects(context.Context, string) ([]sharedstore.Project, error) {
 	return nil, nil
 }
@@ -45,6 +49,10 @@ func (c testCatalog) ListAllProjectKeys(context.Context) ([]sharedstore.ProjectK
 }
 
 func (c testCatalog) CreateProject(context.Context, string, string, sharedstore.ProjectCreateInput) (*sharedstore.Project, error) {
+	return nil, nil
+}
+
+func (c testCatalog) UpdateProject(context.Context, string, string, sharedstore.ProjectUpdate) (*sharedstore.Project, error) {
 	return nil, nil
 }
 

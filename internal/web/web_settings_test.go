@@ -234,14 +234,8 @@ func TestSettingsPage(t *testing.T) {
 	srv, db := setupTestServer(t)
 	defer srv.Close()
 
-	// Seed a project and key so the settings page has DSN to display.
-	if _, err := db.Exec(`INSERT OR IGNORE INTO organizations (id, slug, name) VALUES ('org-1', 'urgentry-org', 'Urgentry')`); err != nil {
-		t.Fatalf("seed settings org: %v", err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO projects (id, organization_id, slug, name, platform, status) VALUES ('proj-1', 'org-1', 'default', 'Default Project', 'go', 'active')`); err != nil {
-		t.Fatalf("seed settings project: %v", err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO project_keys (id, project_id, public_key, status, label) VALUES ('key-1', 'proj-1', 'abc123testkey', 'active', 'Default')`); err != nil {
+	// Seed a key for the selected default project so the settings page has a DSN to display.
+	if _, err := db.Exec(`INSERT OR IGNORE INTO project_keys (id, project_id, public_key, status, label) VALUES ('key-1', 'test-proj', 'abc123testkey', 'active', 'Default')`); err != nil {
 		t.Fatalf("seed settings key: %v", err)
 	}
 
@@ -260,11 +254,47 @@ func TestSettingsPage(t *testing.T) {
 	if !strings.Contains(body, "abc123testkey") {
 		t.Error("expected DSN key in settings page")
 	}
-	if !strings.Contains(body, "abc123testkey@") || !strings.Contains(body, "/"+dsn.PublicProjectID("proj-1")) {
+	if !strings.Contains(body, "abc123testkey@") || !strings.Contains(body, "/"+dsn.PublicProjectID("test-proj")) {
 		t.Error("expected settings DSN to use the numeric SDK project ID")
 	}
 	if strings.Contains(body, "/api/proj-1/store/") {
 		t.Error("settings DSN should not use the legacy store endpoint format")
+	}
+	for _, want := range []string{`name="provider"`, `value="forgejo"`, "Forgejo"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("settings page missing repository provider option %q", want)
+		}
+	}
+}
+
+func TestCreateForgejoCodeMapping(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer srv.Close()
+
+	form := url.Values{
+		"project_id":     {"test-proj"},
+		"stack_root":     {"highlife/"},
+		"source_root":    {"[highlife]/highlife/"},
+		"provider":       {"forgejo"},
+		"repo_url":       {"https://forge.hlf.is/HighLife/core"},
+		"default_branch": {"master"},
+	}
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.PostForm(srv.URL+"/settings/code-mappings", form)
+	if err != nil {
+		t.Fatalf("POST /settings/code-mappings: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", resp.StatusCode)
+	}
+
+	var stackRoot, sourceRoot, provider, repoURL string
+	if err := db.QueryRow(`SELECT stack_root, source_root, provider, repo_url FROM code_mappings WHERE project_id = 'test-proj'`).Scan(&stackRoot, &sourceRoot, &provider, &repoURL); err != nil {
+		t.Fatalf("query code mapping: %v", err)
+	}
+	if stackRoot != "highlife/" || sourceRoot != "[highlife]/highlife/" || provider != "forgejo" || repoURL != "https://forge.hlf.is/HighLife/core" {
+		t.Fatalf("unexpected code mapping: stack=%q source=%q provider=%q repo=%q", stackRoot, sourceRoot, provider, repoURL)
 	}
 }
 
@@ -273,6 +303,7 @@ func TestUpdateProjectSettings(t *testing.T) {
 	defer srv.Close()
 
 	form := url.Values{
+		"project_id":                         {"test-proj"},
 		"name":                               {"Renamed Project"},
 		"platform":                           {"python"},
 		"status":                             {"disabled"},
@@ -346,6 +377,7 @@ func TestUpdateProjectSettingsRejectsInvalidReplayPolicy(t *testing.T) {
 	defer srv.Close()
 
 	form := url.Values{
+		"project_id":         {"test-proj"},
 		"name":               {"Renamed Project"},
 		"platform":           {"python"},
 		"status":             {"active"},
@@ -369,6 +401,7 @@ func TestUpdateProjectSettingsRequiresSessionCSRF(t *testing.T) {
 	defer srv.Close()
 
 	form := url.Values{
+		"project_id":                         {"test-proj"},
 		"name":                               {"Renamed Project"},
 		"platform":                           {"python"},
 		"status":                             {"disabled"},

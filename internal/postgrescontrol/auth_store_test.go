@@ -344,6 +344,40 @@ func TestEnsureDefaultKey(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("project key count = %d, want 1", count)
 	}
+	var teamID, projectTeamID string
+	if err := db.QueryRowContext(t.Context(), `SELECT id FROM teams WHERE organization_id = 'default-org' AND slug = 'default'`).Scan(&teamID); err != nil {
+		t.Fatalf("default team: %v", err)
+	}
+	if err := db.QueryRowContext(t.Context(), `SELECT team_id FROM projects WHERE id = 'default-project'`).Scan(&projectTeamID); err != nil {
+		t.Fatalf("default project team: %v", err)
+	}
+	if teamID == "" || projectTeamID != teamID {
+		t.Fatalf("default team=%q project team=%q", teamID, projectTeamID)
+	}
+}
+
+func TestEnsureDefaultKeyRepairsMissingDefaultTeam(t *testing.T) {
+	t.Parallel()
+	db := openMigratedTestDatabase(t)
+	if _, err := EnsureDefaultKey(t.Context(), db); err != nil {
+		t.Fatalf("EnsureDefaultKey() error = %v", err)
+	}
+	if _, err := db.ExecContext(t.Context(), `UPDATE projects SET team_id = NULL WHERE id = 'default-project'`); err != nil {
+		t.Fatalf("clear default project team: %v", err)
+	}
+	if _, err := db.ExecContext(t.Context(), `DELETE FROM teams WHERE organization_id = 'default-org' AND slug = 'default'`); err != nil {
+		t.Fatalf("delete default team: %v", err)
+	}
+	if _, err := EnsureDefaultKey(t.Context(), db); err != nil {
+		t.Fatalf("repair default team: %v", err)
+	}
+	var count int
+	if err := db.QueryRowContext(t.Context(),
+		`SELECT COUNT(*) FROM projects p JOIN teams t ON t.id = p.team_id
+		 WHERE p.id = 'default-project' AND t.organization_id = 'default-org' AND t.slug = 'default'`,
+	).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("repaired default project team count=%d err=%v", count, err)
+	}
 }
 
 func newAuthTestStore(t *testing.T) (*AuthStore, *sql.DB) {

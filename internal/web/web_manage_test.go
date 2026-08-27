@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -159,6 +160,98 @@ func TestManageOrganizationsListsOrg(t *testing.T) {
 	}
 }
 
+func TestManageOrganizationsCreatesAndUpdatesOrganization(t *testing.T) {
+	srv, db, sessionToken, csrf := setupAuthorizedTestServerWithDeps(t, func(_ *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
+		return deps
+	})
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	createForm := url.Values{"name": {"HighLife"}, "slug": {"highlife"}}
+	resp := sessionRequest(t, client, http.MethodPost, srv.URL+"/manage/organizations/", sessionToken, csrf, "application/x-www-form-urlencoded", strings.NewReader(createForm.Encode()))
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create organization status = %d; body: %s", resp.StatusCode, getBody(t, resp))
+	}
+	resp.Body.Close()
+
+	var ownerCount, teamCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM organization_members WHERE organization_id = (SELECT id FROM organizations WHERE slug = 'highlife') AND role = 'owner'`).Scan(&ownerCount); err != nil {
+		t.Fatalf("owner count: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM teams WHERE organization_id = (SELECT id FROM organizations WHERE slug = 'highlife') AND slug = 'default'`).Scan(&teamCount); err != nil {
+		t.Fatalf("team count: %v", err)
+	}
+	if ownerCount != 1 || teamCount != 1 {
+		t.Fatalf("created organization owner=%d team=%d, want 1/1", ownerCount, teamCount)
+	}
+
+	updateForm := url.Values{"name": {"HighLife RP"}, "slug": {"highlife-rp"}}
+	resp = sessionRequest(t, client, http.MethodPost, srv.URL+"/manage/organizations/highlife/update", sessionToken, csrf, "application/x-www-form-urlencoded", strings.NewReader(updateForm.Encode()))
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("update organization status = %d; body: %s", resp.StatusCode, getBody(t, resp))
+	}
+	resp.Body.Close()
+	var name string
+	if err := db.QueryRow(`SELECT name FROM organizations WHERE slug = 'highlife-rp'`).Scan(&name); err != nil || name != "HighLife RP" {
+		t.Fatalf("updated organization name=%q err=%v", name, err)
+	}
+}
+
+func TestManageMutationsRequireCSRF(t *testing.T) {
+	srv, _, sessionToken, _ := setupAuthorizedTestServerWithDeps(t, func(_ *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
+		return deps
+	})
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, target := range []string{
+		"/manage/organizations/",
+		"/manage/organizations/test-org/update",
+		"/manage/projects/test-org/test-project/update",
+		"/manage/projects/test-org/test-project/delete",
+		"/manage/users/invite",
+	} {
+		resp := sessionRequest(t, client, http.MethodPost, srv.URL+target, sessionToken, "", "application/x-www-form-urlencoded", strings.NewReader(""))
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("POST %s without CSRF status = %d, want 403", target, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+}
+
+func TestManageUsersInvitesAndAcceptsUser(t *testing.T) {
+	srv, db, sessionToken, csrf := setupAuthorizedTestServerWithDeps(t, func(db *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
+		if _, err := db.Exec(`INSERT INTO teams (id, organization_id, slug, name) VALUES ('team-1', 'test-org', 'backend', 'Backend')`); err != nil {
+			t.Fatalf("seed team: %v", err)
+		}
+		return deps
+	})
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	form := url.Values{"email": {"dev@example.com"}, "organization": {"test-org"}, "team": {"test-org/backend"}, "role": {"admin"}}
+	resp := sessionRequest(t, client, http.MethodPost, srv.URL+"/manage/users/invite", sessionToken, csrf, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create invite status = %d; body: %s", resp.StatusCode, body)
+	}
+	match := regexp.MustCompile(`/accept-invite/([^/]+)/`).FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("invite response did not contain acceptance link: %s", body)
+	}
+
+	acceptForm := url.Values{"display_name": {"Developer"}, "password": {"a-secure-password"}}
+	resp = sessionRequest(t, client, http.MethodPost, srv.URL+"/accept-invite/"+match[1]+"/", "", "", "application/x-www-form-urlencoded", strings.NewReader(acceptForm.Encode()))
+	body = getBody(t, resp)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Invitation accepted") {
+		t.Fatalf("accept invite status = %d; body: %s", resp.StatusCode, body)
+	}
+	var role string
+	if err := db.QueryRow(`SELECT m.role FROM organization_members m JOIN users u ON u.id = m.user_id WHERE u.email = 'dev@example.com'`).Scan(&role); err != nil || role != "admin" {
+		t.Fatalf("accepted member role=%q err=%v", role, err)
+	}
+}
+
 func TestManageProjectsCreatesProjectWithDefaultKey(t *testing.T) {
 	srv, db, sessionToken, csrf := setupAuthorizedTestServerWithDeps(t, func(db *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
 		if _, err := db.Exec(`INSERT INTO teams (id, organization_id, slug, name) VALUES ('team-1', 'test-org', 'backend', 'Backend')`); err != nil {
@@ -213,10 +306,94 @@ func TestManageProjectsCreatesProjectWithDefaultKey(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("project switcher status = %d, want 200; body: %s", resp.StatusCode, body)
 	}
-	for _, want := range []string{`"value":"test-org/mobile-app"`, `"settingsUrl":"/settings/project/mobile-app/general/"`} {
+	for _, want := range []string{`"orgName":"Test Org"`, `"value":"test-org/mobile-app"`, `"settingsUrl":"/settings/project/mobile-app/general/"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("project switcher missing %q in %s", want, body)
 		}
+	}
+}
+
+func TestManageProjectsUsesFreeformPlatformAndNoMissingTeamMessage(t *testing.T) {
+	srv, _, sessionToken, csrf := setupAuthorizedTestServerWithDeps(t, func(_ *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
+		return deps
+	})
+	defer srv.Close()
+
+	resp := sessionRequest(t, http.DefaultClient, http.MethodGet, srv.URL+"/manage/projects/", sessionToken, csrf, "", nil)
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `input type="text" name="platform"`) {
+		t.Fatal("create project platform is not a freeform text input")
+	}
+	if strings.Contains(body, "Create a team before adding another project") {
+		t.Fatal("create project page still shows the missing-team blocker")
+	}
+}
+
+func TestSettingsPageHonorsSelectedProject(t *testing.T) {
+	srv, _, sessionToken, _ := setupAuthorizedTestServerWithDeps(t, func(db *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
+		if _, err := db.Exec(`INSERT INTO projects (id, organization_id, slug, name, platform, status) VALUES ('mobile-proj', 'test-org', 'mobile-app', 'Mobile App', 'lua', 'active')`); err != nil {
+			t.Fatalf("seed selected project: %v", err)
+		}
+		return deps
+	})
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/settings/", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: "urgentry_session", Value: sessionToken})
+	req.AddCookie(&http.Cookie{Name: selectedProjectCookie, Value: "test-org%2Fmobile-app"})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET settings: %v", err)
+	}
+	body := getBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", resp.StatusCode, body)
+	}
+	for _, want := range []string{`name="name" value="Mobile App"`, `name="platform" value="lua"`, `<td class="mono">mobile-app</td>`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("selected project settings missing %q", want)
+		}
+	}
+}
+
+func TestManageProjectsUpdatesAndDeletesProject(t *testing.T) {
+	srv, db, sessionToken, csrf := setupAuthorizedTestServerWithDeps(t, func(db *sql.DB, _ *auth.Authorizer, _ string, deps Dependencies) Dependencies {
+		if _, err := db.Exec(`INSERT INTO teams (id, organization_id, slug, name) VALUES ('team-1', 'test-org', 'backend', 'Backend')`); err != nil {
+			t.Fatalf("seed team: %v", err)
+		}
+		if _, err := db.Exec(`INSERT INTO projects (id, organization_id, team_id, slug, name, platform) VALUES ('project-edit', 'test-org', 'team-1', 'old-project', 'Old Project', 'go')`); err != nil {
+			t.Fatalf("seed project: %v", err)
+		}
+		return deps
+	})
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	updateForm := url.Values{"name": {"New Project"}, "slug": {"new-project"}, "platform": {"lua"}}
+	resp := sessionRequest(t, client, http.MethodPost, srv.URL+"/manage/projects/test-org/old-project/update", sessionToken, csrf, "application/x-www-form-urlencoded", strings.NewReader(updateForm.Encode()))
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("update project status = %d; body: %s", resp.StatusCode, getBody(t, resp))
+	}
+	resp.Body.Close()
+	var name, platform string
+	if err := db.QueryRow(`SELECT name, platform FROM projects WHERE id = 'project-edit' AND slug = 'new-project'`).Scan(&name, &platform); err != nil || name != "New Project" || platform != "lua" {
+		t.Fatalf("updated project name=%q platform=%q err=%v", name, platform, err)
+	}
+
+	resp = sessionRequest(t, client, http.MethodPost, srv.URL+"/manage/projects/test-org/new-project/delete", sessionToken, csrf, "application/x-www-form-urlencoded", strings.NewReader(""))
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("delete project status = %d; body: %s", resp.StatusCode, getBody(t, resp))
+	}
+	resp.Body.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM projects WHERE id = 'project-edit'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("deleted project count=%d err=%v", count, err)
 	}
 }
 
@@ -236,5 +413,11 @@ func TestManageSidebarLinkPresentInNav(t *testing.T) {
 	}
 	if !strings.Contains(body, `aria-label="Admin"`) {
 		t.Errorf("expected Admin nav item in sidebar")
+	}
+	settingsIndex := strings.Index(body, `aria-label="Settings"`)
+	logoutIndex := strings.Index(body, `aria-label="Logout"`)
+	adminIndex := strings.Index(body, `aria-label="Admin"`)
+	if settingsIndex < 0 || logoutIndex < settingsIndex || adminIndex < logoutIndex {
+		t.Errorf("expected Logout between Settings and Admin in sidebar")
 	}
 }

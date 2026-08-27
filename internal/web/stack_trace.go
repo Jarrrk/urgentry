@@ -3,6 +3,9 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
+	pathpkg "path"
+	"strconv"
 	"strings"
 
 	"urgentry/internal/store"
@@ -14,15 +17,16 @@ import (
 
 // exceptionGroup represents one exception in a chain with its stack trace.
 type exceptionGroup struct {
-	Type       string
-	Value      string
-	Module     string
-	Mechanism  string // e.g. "generic", "onerror", "onunhandledrejection"
-	Handled    string // "true", "false", or "" if unknown
-	Frames     []richFrame
-	HasFrames  bool
-	InAppCount int
-	LibCount   int
+	Type            string
+	Value           string
+	Module          string
+	Mechanism       string // e.g. "generic", "onerror", "onunhandledrejection"
+	Handled         string // "true", "false", or "" if unknown
+	HeaderSourceURL string
+	Frames          []richFrame
+	HasFrames       bool
+	InAppCount      int
+	LibCount        int
 }
 
 // richFrame extends stackFrame with richer metadata for the detail page.
@@ -178,41 +182,87 @@ func stackTraceFromPayload(payloadJSON []byte) []exceptionGroup {
 // matches the frame's filename. The mapping replaces the StackRoot prefix with
 // the SourceRoot prefix and builds a full URL like:
 //
-//	{RepoURL}/blob/{DefaultBranch}/{SourceRoot}{rest}#L{lineNo}
+//	GitHub/GitLab: {RepoURL}/blob/{DefaultBranch}/{SourceRoot}{rest}#L{lineNo}
+//	Forgejo/Gitea: {RepoURL}/src/branch/{DefaultBranch}/{SourceRoot}{rest}#L{lineNo}
 func applyCodeMappings(groups []exceptionGroup, mappings []*store.CodeMapping) {
 	if len(mappings) == 0 {
 		return
 	}
 	for gi := range groups {
+		groups[gi].HeaderSourceURL = exceptionSourceURL(groups[gi].Type, mappings)
 		for fi := range groups[gi].Frames {
 			frame := &groups[gi].Frames[fi]
-			filename := frame.File
-			if filename == "" {
-				continue
-			}
-			for _, m := range mappings {
-				if !strings.HasPrefix(filename, m.StackRoot) {
-					continue
-				}
-				rest := strings.TrimPrefix(filename, m.StackRoot)
-				repoPath := m.SourceRoot + rest
-				// Normalize double slashes
-				repoPath = strings.ReplaceAll(repoPath, "//", "/")
-				repoPath = strings.TrimPrefix(repoPath, "/")
-
-				repoURL := strings.TrimSuffix(m.RepoURL, "/")
-				branch := m.DefaultBranch
-				if branch == "" {
-					branch = "main"
-				}
-
-				url := fmt.Sprintf("%s/blob/%s/%s", repoURL, branch, repoPath)
-				if frame.LineNo > 0 {
-					url += fmt.Sprintf("#L%d", frame.LineNo)
-				}
-				frame.SourceURL = url
-				break // first matching mapping wins
-			}
+			frame.SourceURL = codeMappingSourceURL(frame.File, frame.LineNo, mappings)
+		}
+		if groups[gi].HeaderSourceURL == "" && len(groups[gi].Frames) > 0 {
+			groups[gi].HeaderSourceURL = groups[gi].Frames[0].SourceURL
 		}
 	}
+}
+
+func applyCodeMappingsToFrames(frames []stackFrame, mappings []*store.CodeMapping) {
+	for i := range frames {
+		frames[i].SourceURL = codeMappingSourceURL(frames[i].File, frames[i].LineNo, mappings)
+	}
+}
+
+func codeMappingSourceURL(filename string, lineNo int, mappings []*store.CodeMapping) string {
+	mapping, repoPath := matchingCodeMapping(filename, mappings)
+	if mapping == nil {
+		return ""
+	}
+	pathSegments := strings.Split(repoPath, "/")
+	for i := range pathSegments {
+		pathSegments[i] = url.PathEscape(pathSegments[i])
+	}
+	repoPath = strings.Join(pathSegments, "/")
+
+	repoURL := strings.TrimSuffix(mapping.RepoURL, "/")
+	branch := mapping.DefaultBranch
+	if branch == "" {
+		branch = "main"
+	}
+	provider, _ := store.NormalizeCodeMappingProvider(mapping.Provider)
+	var sourceURL string
+	switch provider {
+	case store.CodeMappingProviderForgejo, store.CodeMappingProviderGitea:
+		sourceURL = fmt.Sprintf("%s/src/branch/%s/%s", repoURL, branch, repoPath)
+	default:
+		sourceURL = fmt.Sprintf("%s/blob/%s/%s", repoURL, branch, repoPath)
+	}
+	if lineNo > 0 {
+		sourceURL += fmt.Sprintf("#L%d", lineNo)
+	}
+	return sourceURL
+}
+
+func exceptionSourceURL(exceptionType string, mappings []*store.CodeMapping) string {
+	exceptionType = strings.TrimSpace(exceptionType)
+	separator := strings.LastIndex(exceptionType, ":")
+	if separator <= 0 {
+		return ""
+	}
+	lineNo, err := strconv.Atoi(strings.TrimSpace(exceptionType[separator+1:]))
+	if err != nil || lineNo <= 0 {
+		return ""
+	}
+	return codeMappingSourceURL(strings.TrimSpace(exceptionType[:separator]), lineNo, mappings)
+}
+
+func matchingCodeMapping(filename string, mappings []*store.CodeMapping) (*store.CodeMapping, string) {
+	if filename == "" {
+		return nil, ""
+	}
+	for _, mapping := range mappings {
+		if mapping == nil || !strings.HasPrefix(filename, mapping.StackRoot) {
+			continue
+		}
+		repoPath := mapping.SourceRoot + strings.TrimPrefix(filename, mapping.StackRoot)
+		repoPath = strings.TrimPrefix(pathpkg.Clean("/"+strings.ReplaceAll(repoPath, "//", "/")), "/")
+		if repoPath == "." || repoPath == "" {
+			return nil, ""
+		}
+		return mapping, repoPath
+	}
+	return nil, ""
 }

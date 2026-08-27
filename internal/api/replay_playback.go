@@ -2,9 +2,12 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	blobstore "urgentry/internal/blob"
 	"urgentry/internal/httputil"
@@ -151,6 +154,129 @@ func handleDownloadReplayAsset(db *sql.DB, queries telemetryquery.Service, blobs
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 	}
+}
+
+func handleGetReplayRecordingEvents(db *sql.DB, queries telemetryquery.Service, blobs sharedstore.BlobStore, auth authFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !auth(w, r) {
+			return
+		}
+		projectID, ok := resolveProjectID(w, r, db)
+		if !ok {
+			return
+		}
+		replayID := PathParam(r, "replay_id")
+		record, err := queries.GetReplay(r.Context(), projectID, replayID)
+		if err != nil {
+			if err == sharedstore.ErrNotFound {
+				httputil.WriteError(w, http.StatusNotFound, "Replay not found.")
+				return
+			}
+			httputil.WriteError(w, http.StatusInternalServerError, "Failed to load replay.")
+			return
+		}
+
+		resolver := blobstore.NewResolver(db, blobs)
+		events := make([]json.RawMessage, 0)
+		warnings := make([]string, 0)
+		for _, asset := range record.Assets {
+			if asset.Kind != "recording" && asset.Kind != "snapshot" {
+				continue
+			}
+			data, readErr := resolver.Read(r.Context(), blobstore.Attachment(projectID, asset.AttachmentID, asset.ObjectKey))
+			if readErr != nil {
+				warnings = append(warnings, asset.Name+": asset unavailable")
+				continue
+			}
+			decoded, decodeErr := sqlite.DecodeReplayRecording(data)
+			if decodeErr != nil {
+				warnings = append(warnings, asset.Name+": "+decodeErr.Error())
+				continue
+			}
+			events = append(events, decoded...)
+		}
+		if len(events) == 0 {
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "No playable replay recording is available.")
+			return
+		}
+		events = normalizeReplayPlayerEvents(events, record.Manifest.StartedAt)
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"events":   events,
+			"warnings": warnings,
+		})
+	}
+}
+
+func normalizeReplayPlayerEvents(events []json.RawMessage, startedAt time.Time) []json.RawMessage {
+	baseTimestamp := float64(0)
+	if !startedAt.IsZero() {
+		baseTimestamp = float64(startedAt.UnixMilli())
+	}
+	if baseTimestamp <= 0 {
+		for _, raw := range events {
+			timestamp, ok := replayPlayerEventTimestamp(raw)
+			if !ok {
+				continue
+			}
+			if timestamp >= 1e9 && timestamp < 1e11 {
+				timestamp *= 1000
+			}
+			if timestamp >= 1e11 && (baseTimestamp == 0 || timestamp < baseTimestamp) {
+				baseTimestamp = timestamp
+			}
+		}
+	}
+
+	normalized := make([]json.RawMessage, 0, len(events))
+	for _, raw := range events {
+		var event map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &event); err != nil {
+			normalized = append(normalized, raw)
+			continue
+		}
+		timestamp, ok := replayPlayerEventTimestamp(raw)
+		if !ok {
+			normalized = append(normalized, raw)
+			continue
+		}
+		switch {
+		case timestamp <= 0 && baseTimestamp > 0:
+			timestamp = baseTimestamp
+		case timestamp >= 1e9 && timestamp < 1e11:
+			timestamp *= 1000
+		case timestamp > 0 && timestamp < 1e9 && baseTimestamp > 0:
+			timestamp = baseTimestamp + timestamp
+		}
+		event["timestamp"] = json.RawMessage(strconv.FormatFloat(timestamp, 'f', -1, 64))
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			normalized = append(normalized, raw)
+			continue
+		}
+		normalized = append(normalized, encoded)
+	}
+	sort.SliceStable(normalized, func(i, j int) bool {
+		left, leftOK := replayPlayerEventTimestamp(normalized[i])
+		right, rightOK := replayPlayerEventTimestamp(normalized[j])
+		if !leftOK {
+			return false
+		}
+		if !rightOK {
+			return true
+		}
+		return left < right
+	})
+	return normalized
+}
+
+func replayPlayerEventTimestamp(raw json.RawMessage) (float64, bool) {
+	var event struct {
+		Timestamp *float64 `json:"timestamp"`
+	}
+	if err := json.Unmarshal(raw, &event); err != nil || event.Timestamp == nil {
+		return 0, false
+	}
+	return *event.Timestamp, true
 }
 
 func guardReplayProjectRead(w http.ResponseWriter, r *http.Request, db *sql.DB, guard sqlite.QueryGuard, auth authFunc, limit int, detail bool) (projectID, replayID string, ok bool) {

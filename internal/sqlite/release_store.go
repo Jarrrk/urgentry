@@ -48,6 +48,45 @@ func (s *ReleaseStore) EnsureRelease(ctx context.Context, orgID, version string)
 	return ensureReleaseForOwner(ctx, s.db, orgID, version)
 }
 
+// ReleaseIsAtOrAfter compares opaque release identifiers using the order in
+// which Urgentry first observed them. rowid breaks created_at ties when two
+// releases arrive within the same timestamp second.
+func (s *ReleaseStore) ReleaseIsAtOrAfter(ctx context.Context, ownerID, candidate, baseline string) (bool, error) {
+	ownerID = strings.TrimSpace(ownerID)
+	candidate = strings.TrimSpace(candidate)
+	baseline = strings.TrimSpace(baseline)
+	if ownerID == "" || candidate == "" || baseline == "" {
+		return false, nil
+	}
+	if candidate == baseline {
+		return true, nil
+	}
+	organizationID, err := releaseOwnerOrganizationID(ctx, s.db, ownerID)
+	if err != nil || organizationID == "" {
+		return false, err
+	}
+	var candidateCreated, baselineCreated string
+	var candidateRowID, baselineRowID int64
+	err = s.db.QueryRowContext(ctx,
+		`SELECT
+			(SELECT created_at FROM releases WHERE organization_id = ? AND version = ?),
+			(SELECT rowid FROM releases WHERE organization_id = ? AND version = ?),
+			(SELECT created_at FROM releases WHERE organization_id = ? AND version = ?),
+			(SELECT rowid FROM releases WHERE organization_id = ? AND version = ?)`,
+		organizationID, candidate,
+		organizationID, candidate,
+		organizationID, baseline,
+		organizationID, baseline,
+	).Scan(&candidateCreated, &candidateRowID, &baselineCreated, &baselineRowID)
+	if err != nil {
+		return false, err
+	}
+	if candidateCreated != baselineCreated {
+		return candidateCreated > baselineCreated, nil
+	}
+	return candidateRowID >= baselineRowID, nil
+}
+
 // CreateRelease creates or returns a release by organization slug and version.
 func (s *ReleaseStore) CreateRelease(ctx context.Context, orgSlug, version string) (*Release, error) {
 	now := time.Now().UTC().Format(time.RFC3339)

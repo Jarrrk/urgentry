@@ -12,11 +12,11 @@ import (
 
 // timeToFirstEvent returns a human-readable string describing how long after
 // server start the first real event was received. Returns "" if no events exist.
-func (h *Handler) timeToFirstEvent(ctx context.Context) string {
+func (h *Handler) timeToFirstEvent(ctx context.Context, projectID string) string {
 	if h.webStore == nil {
 		return ""
 	}
-	firstTime, err := h.webStore.FirstEventAt(ctx)
+	firstTime, err := h.webStore.FirstEventAt(ctx, projectID)
 	if err != nil || firstTime == nil || firstTime.IsZero() {
 		return ""
 	}
@@ -54,12 +54,12 @@ type ErrorBudgetData struct {
 
 // computeErrorBudget calculates the error budget for the dashboard.
 // Target default: 1% of events should be errors.
-func (h *Handler) computeErrorBudget(ctx context.Context) *ErrorBudgetData {
+func (h *Handler) computeErrorBudget(ctx context.Context, projectID string) *ErrorBudgetData {
 	if h.webStore == nil {
 		return nil
 	}
 
-	totalEvents, _ := h.webStore.CountEvents(ctx)
+	totalEvents, _ := h.webStore.CountEvents(ctx, projectID)
 	if totalEvents == 0 {
 		return &ErrorBudgetData{
 			TargetPct:   1.0,
@@ -73,7 +73,7 @@ func (h *Handler) computeErrorBudget(ctx context.Context) *ErrorBudgetData {
 	}
 
 	// Count error-level events (error + fatal).
-	errorEvents, err := h.webStore.CountErrorLevelEvents(ctx)
+	errorEvents, err := h.webStore.CountErrorLevelEvents(ctx, projectID)
 	if err != nil {
 		return nil
 	}

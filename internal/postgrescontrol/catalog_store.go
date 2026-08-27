@@ -63,6 +63,46 @@ func (s *CatalogStore) GetOrganization(ctx context.Context, slug string) (*share
 	return &item, nil
 }
 
+func (s *CatalogStore) CreateOrganization(ctx context.Context, input sharedstore.OrganizationCreateInput, ownerUserID string) (*sharedstore.Organization, error) {
+	slug := strings.TrimSpace(input.Slug)
+	name := strings.TrimSpace(input.Name)
+	ownerUserID = strings.TrimSpace(ownerUserID)
+	if slug == "" || name == "" || ownerUserID == "" {
+		return nil, nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin create organization: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now().UTC()
+	orgID := id.New()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO organizations (id, slug, name, created_at, updated_at) VALUES ($1, $2, $3, $4, $4)`,
+		orgID, slug, name, now,
+	); err != nil {
+		return nil, fmt.Errorf("insert organization: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO organization_members (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, 'owner', $4)`,
+		id.New(), orgID, ownerUserID, now,
+	); err != nil {
+		return nil, fmt.Errorf("insert organization owner: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO teams (id, organization_id, slug, name, created_at, updated_at) VALUES ($1, $2, 'default', 'Default', $3, $3)`,
+		id.New(), orgID, now,
+	); err != nil {
+		return nil, fmt.Errorf("insert default team: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit create organization: %w", err)
+	}
+	return s.GetOrganization(ctx, slug)
+}
+
 func (s *CatalogStore) ListProjects(ctx context.Context, orgSlug string) ([]sharedstore.Project, error) {
 	query := `SELECT p.id, p.slug, p.name, COALESCE(p.platform, ''), COALESCE(p.status, 'active'), p.created_at, o.slug, COALESCE(t.slug, '')
 	          FROM projects p

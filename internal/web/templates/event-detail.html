@@ -47,7 +47,7 @@
     {{range .ExceptionGroups}}
     <div class="stacktrace">
       <div class="stacktrace-header">
-        <span class="stacktrace-type">{{.Type}}</span>
+        {{if .HeaderSourceURL}}<a href="{{.HeaderSourceURL}}" target="_blank" rel="noopener" class="stacktrace-type stacktrace-source-link">{{.Type}}</a>{{else}}<span class="stacktrace-type">{{.Type}}</span>{{end}}
         <span class="stacktrace-value">{{.Value}}</span>
         {{if .Mechanism}}<span class="stacktrace-mechanism">{{.Mechanism}}</span>{{end}}
         {{if .Handled}}<span class="stacktrace-handled {{if eq .Handled "false"}}unhandled{{end}}">{{if eq .Handled "false"}}Unhandled{{else}}Handled{{end}}</span>{{end}}
@@ -58,9 +58,9 @@
         {{if .LibCount}}<span class="frame-count-sep">&middot;</span><span class="frame-count-label lib">{{.LibCount}} library</span>{{end}}
       </div>
       {{range $idx, $frame := .Frames}}
-      <div class="frame {{if $frame.InApp}}frame-inapp{{else}}frame-system{{end}}">
-        <div class="frame-header" onclick="toggleFrame(this)">
-          <span class="frame-toggle">{{if $frame.Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>
+      <div class="frame {{if $frame.InApp}}frame-inapp{{else}}frame-system{{end}}" data-source-file="{{$frame.File}}">
+        <div class="frame-header" {{if $frame.HasContext}}onclick="toggleFrame(this)"{{end}}>
+          {{if $frame.HasContext}}<span class="frame-toggle">{{if $frame.Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>{{else}}<span class="frame-toggle"></span>{{end}}
           {{if $frame.InApp}}<span class="inapp-badge">app</span>{{end}}
           {{if $frame.SourceURL}}<a href="{{$frame.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{$frame.File}}</a>{{else}}<span class="frame-file">{{$frame.File}}</span>{{end}}
           <span class="frame-in">in</span>
@@ -70,8 +70,8 @@
           {{if $frame.MappedFrom}}<span class="frame-mapped">{{$frame.MappedFrom}}</span>{{end}}
           <button class="copy-btn frame-copy" onclick="event.stopPropagation(); copyToClipboard('{{$frame.File}}:{{$frame.LineNo}} in {{$frame.Function}}', this)" title="Copy frame path"><i data-feather="copy"></i></button>
         </div>
+        {{if $frame.HasContext}}
         <div class="frame-code{{if $frame.Collapsed}} is-hidden{{end}}">
-          {{if $frame.HasContext}}
           {{range $frame.PreContext}}
           <div class="code-line">
             <span class="line-no">{{.Number}}</span>
@@ -90,13 +90,8 @@
             <span class="line-content">{{.Content}}</span>
           </div>
           {{end}}
-          {{else}}
-          <div class="code-line no-context">
-            <span class="line-no">{{$frame.LineNo}}</span>
-            <span class="line-content text-tertiary">No source context available</span>
-          </div>
-          {{end}}
         </div>
+        {{end}}
       </div>
       {{end}}
       {{else}}
@@ -108,28 +103,28 @@
     {{/* Fallback to legacy flat frame list */}}
     <div class="stacktrace">
       <div class="stacktrace-header">
-        <span class="stacktrace-type">{{.Event.ExceptionType}}</span>
+        {{if .Event.ExceptionSourceURL}}<a href="{{.Event.ExceptionSourceURL}}" target="_blank" rel="noopener" class="stacktrace-type stacktrace-source-link">{{.Event.ExceptionType}}</a>{{else}}<span class="stacktrace-type">{{.Event.ExceptionType}}</span>{{end}}
         <span class="stacktrace-value">{{.Event.ExceptionValue}}</span>
       </div>
       {{range .Frames}}
-      <div class="frame">
-        <div class="frame-header" onclick="toggleFrame(this)">
-          <span class="frame-toggle">&#9660;</span>
-          <span class="frame-file">{{.File}}</span>
+      <div class="frame" data-source-file="{{.File}}">
+        <div class="frame-header" {{if .CodeLines}}onclick="toggleFrame(this)"{{end}}>
+          {{if .CodeLines}}<span class="frame-toggle">{{if .Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>{{else}}<span class="frame-toggle"></span>{{end}}
+          {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
           <span>in</span>
           <span class="frame-func">{{.Function}}</span>
           <span class="frame-line">line {{.LineNo}}</span>
           {{if .MappedFrom}}<span class="frame-mapped">{{.MappedFrom}}</span>{{end}}
           <button class="copy-btn frame-copy" onclick="event.stopPropagation(); copyToClipboard('{{.File}}:{{.LineNo}} in {{.Function}}', this)" title="Copy frame path"><i data-feather="copy"></i></button>
         </div>
-        <div class="frame-code">
+        {{if .CodeLines}}<div class="frame-code{{if .Collapsed}} is-hidden{{end}}">
           {{range .CodeLines}}
           <div class="code-line {{if .Highlight}}highlight{{end}}">
             <span class="line-no">{{.Number}}</span>
             <span class="line-content">{{.Content}}</span>
           </div>
           {{end}}
-        </div>
+        </div>{{end}}
       </div>
       {{end}}
       {{if not .Frames}}
@@ -302,13 +297,9 @@ function copyToClipboard(text, btn) {
 function toggleFrame(header) {
   var code = header.nextElementSibling;
   var toggle = header.querySelector('.frame-toggle');
-  if (code.style.display === 'none') {
-    code.style.display = 'block';
-    toggle.innerHTML = '\u25BC';
-  } else {
-    code.style.display = 'none';
-    toggle.innerHTML = '\u25B6';
-  }
+  if (!code || !toggle) return;
+  var hidden = code.classList.toggle('is-hidden');
+  toggle.innerHTML = hidden ? '\u25B6' : '\u25BC';
 }
 
 /* JSON syntax highlighting */

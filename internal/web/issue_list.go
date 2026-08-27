@@ -109,13 +109,18 @@ func (h *Handler) issueListFromDB(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	filter := r.URL.Query().Get("filter")
 	if filter == "" {
-		filter = "all"
+		filter = "unresolved"
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	page := parsePage(r)
 	env := getSelectedEnvironment(w, r)
 	sort := getSelectedSort(w, r)
 	timeRange, since := getSelectedTimeRange(w, r)
+	scope, err := h.defaultPageScope(ctx)
+	if err != nil {
+		http.Error(w, "Failed to resolve selected project.", http.StatusInternalServerError)
+		return
+	}
 
 	// Fetch available environments for the dropdown.
 	environments, err := h.webStore.ListEnvironments(ctx)
@@ -128,7 +133,7 @@ func (h *Handler) issueListFromDB(w http.ResponseWriter, r *http.Request) {
 	// Use ListIssues with Limit=1 to get counts without fetching full rows.
 	countForFilter := func(f string) (int, error) {
 		_, n, err := h.webStore.ListIssues(ctx, store.IssueListOpts{
-			Filter: f, Environment: env, Since: since, Limit: 1,
+			ProjectID: scope.ProjectID, Filter: f, Environment: env, Since: since, Limit: 1,
 		})
 		return n, err
 	}
@@ -157,7 +162,7 @@ func (h *Handler) issueListFromDB(w http.ResponseWriter, r *http.Request) {
 	var filteredCount int
 	if query != "" {
 		_, filteredCount, err = h.webStore.ListIssues(ctx, store.IssueListOpts{
-			Filter: filter, Query: query, Environment: env, Since: since, Limit: 1,
+			ProjectID: scope.ProjectID, Filter: filter, Query: query, Environment: env, Since: since, Limit: 1,
 		})
 		if err != nil {
 			http.Error(w, "Failed to load filtered issue count.", http.StatusInternalServerError)
@@ -180,6 +185,7 @@ func (h *Handler) issueListFromDB(w http.ResponseWriter, r *http.Request) {
 	offset := (currentPage - 1) * defaultPageSize
 
 	opts := store.IssueListOpts{
+		ProjectID:   scope.ProjectID,
 		Filter:      filter,
 		Query:       query,
 		Environment: env,

@@ -30,13 +30,42 @@ func NewFeedbackStore(db *sql.DB) *FeedbackStore {
 
 // SaveFeedback persists a user feedback entry.
 func (s *FeedbackStore) SaveFeedback(ctx context.Context, projectID, eventID, name, email, comments string) error {
-	id := generateID()
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO user_feedback (id, project_id, event_id, name, email, comments)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		id, projectID, eventID, name, email, comments,
-	)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var groupID sql.NullString
+	if err := tx.QueryRowContext(ctx,
+		`SELECT group_id FROM events
+		 WHERE project_id = ? AND event_id = ?
+		 ORDER BY ingested_at DESC LIMIT 1`, projectID, eventID).Scan(&groupID); err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	result, err := tx.ExecContext(ctx,
+		`UPDATE user_feedback
+		 SET name = ?, email = ?, comments = ?, group_id = COALESCE(?, group_id), created_at = datetime('now')
+		 WHERE project_id = ? AND event_id = ?`,
+		name, email, comments, groupID, projectID, eventID)
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated == 0 {
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO user_feedback (id, project_id, event_id, group_id, name, email, comments)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			generateID(), projectID, eventID, groupID, name, email, comments)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ListFeedback returns recent feedback entries for a project.

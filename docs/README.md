@@ -14,6 +14,10 @@ Use this for split-role PostgreSQL-backed deployment:
 
 - [benchmarks.md](benchmarks.md)
 
+## Project configuration
+
+- [Code mappings](code-mappings.md)
+
 ## Release notes
 
 - [../CHANGELOG.md](../CHANGELOG.md)

@@ -9,13 +9,13 @@ import (
 )
 
 // ListFeedback returns recent user feedback rows.
-func (s *WebStore) ListFeedback(ctx context.Context, limit int) ([]store.FeedbackRow, error) {
+func (s *WebStore) ListFeedback(ctx context.Context, projectID string, limit int) ([]store.FeedbackRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, email, comments, event_id, group_id, created_at
-		 FROM user_feedback ORDER BY created_at DESC LIMIT ?`, limit)
+		 FROM user_feedback WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -39,10 +39,10 @@ func (s *WebStore) ListFeedback(ctx context.Context, limit int) ([]store.Feedbac
 }
 
 // GetFeedback returns a single feedback row by ID.
-func (s *WebStore) GetFeedback(ctx context.Context, id string) (*store.FeedbackRow, error) {
+func (s *WebStore) GetFeedback(ctx context.Context, projectID, id string) (*store.FeedbackRow, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, name, email, comments, event_id, group_id, created_at
-		 FROM user_feedback WHERE id = ?`, id)
+		 FROM user_feedback WHERE project_id = ? AND id = ?`, projectID, id)
 	var item store.FeedbackRow
 	var name, email, comments, eventID, groupID, createdAt sql.NullString
 	if err := row.Scan(&item.ID, &name, &email, &comments, &eventID, &groupID, &createdAt); err != nil {
@@ -60,8 +60,53 @@ func (s *WebStore) GetFeedback(ctx context.Context, id string) (*store.FeedbackR
 	return &item, nil
 }
 
+// ListIssueFeedback returns feedback linked to an issue either directly by
+// group_id or indirectly through its associated event. The latter covers
+// reports submitted before asynchronous event processing populated group_id.
+func (s *WebStore) ListIssueFeedback(ctx context.Context, groupID string, limit int) ([]store.FeedbackRow, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT uf.id, uf.name, uf.email, uf.comments, uf.event_id,
+		        COALESCE(NULLIF(uf.group_id, ''), g.id), uf.created_at
+		   FROM user_feedback uf
+		   JOIN groups g ON g.id = ? AND g.project_id = uf.project_id
+		  WHERE uf.group_id = g.id
+		     OR EXISTS (
+		         SELECT 1
+		           FROM events e
+		          WHERE e.project_id = uf.project_id
+		            AND e.event_id = uf.event_id
+		            AND e.group_id = g.id
+		     )
+		  ORDER BY uf.created_at DESC, uf.id DESC
+		  LIMIT ?`, groupID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []store.FeedbackRow
+	for rows.Next() {
+		var item store.FeedbackRow
+		var name, email, comments, eventID, resolvedGroupID, createdAt sql.NullString
+		if err := rows.Scan(&item.ID, &name, &email, &comments, &eventID, &resolvedGroupID, &createdAt); err != nil {
+			return nil, err
+		}
+		item.Name = sqlutil.NullStr(name)
+		item.Email = sqlutil.NullStr(email)
+		item.Comments = sqlutil.NullStr(comments)
+		item.EventID = sqlutil.NullStr(eventID)
+		item.GroupID = sqlutil.NullStr(resolvedGroupID)
+		item.CreatedAt = sqlutil.ParseDBTime(sqlutil.NullStr(createdAt))
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 // ListReleases returns release list rows with health stats.
-func (s *WebStore) ListReleases(ctx context.Context, limit int) ([]store.ReleaseRow, error) {
+func (s *WebStore) ListReleases(ctx context.Context, projectID string, limit int) ([]store.ReleaseRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -75,12 +120,13 @@ func (s *WebStore) ListReleases(ctx context.Context, limit int) ([]store.Release
 		        MAX(rs.created_at)
 		 FROM releases r
 		 LEFT JOIN (
-		     SELECT release, COUNT(*) AS cnt FROM events WHERE release != '' GROUP BY release
+		     SELECT release, COUNT(*) AS cnt FROM events WHERE project_id = ? AND release != '' GROUP BY release
 		 ) e ON e.release = r.version
-		 LEFT JOIN release_sessions rs ON rs.release_version = r.version
+		 LEFT JOIN release_sessions rs ON rs.release_version = r.version AND rs.project_id = ?
+		 WHERE e.cnt IS NOT NULL OR rs.id IS NOT NULL
 		 GROUP BY r.version, r.created_at, e.cnt
 		 ORDER BY r.created_at DESC
-		 LIMIT ?`, limit)
+		 LIMIT ?`, projectID, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

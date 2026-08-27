@@ -114,6 +114,32 @@ INSERT INTO teams (id, organization_id, slug, name, created_at, updated_at) VALU
 	}
 }
 
+func TestCatalogStoreCreateOrganizationBootstrapsOwnerAndTeam(t *testing.T) {
+	t.Parallel()
+
+	store, db := newCatalogTestStore(t)
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO users (id, email, display_name) VALUES ('user-1', 'owner@example.com', 'Owner')`); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	org, err := store.CreateOrganization(t.Context(), sharedstore.OrganizationCreateInput{Name: "HighLife", Slug: "highlife"}, "user-1")
+	if err != nil {
+		t.Fatalf("CreateOrganization() error = %v", err)
+	}
+	if org == nil || org.Name != "HighLife" || org.Slug != "highlife" {
+		t.Fatalf("CreateOrganization() = %#v", org)
+	}
+	var ownerCount, teamCount int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM organization_members WHERE organization_id = $1 AND user_id = 'user-1' AND role = 'owner'`, org.ID).Scan(&ownerCount); err != nil {
+		t.Fatalf("owner count: %v", err)
+	}
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM teams WHERE organization_id = $1 AND slug = 'default'`, org.ID).Scan(&teamCount); err != nil {
+		t.Fatalf("team count: %v", err)
+	}
+	if ownerCount != 1 || teamCount != 1 {
+		t.Fatalf("created organization owner=%d team=%d, want 1/1", ownerCount, teamCount)
+	}
+}
+
 func TestCatalogStoreProjectSettingsAndAuditLogs(t *testing.T) {
 	t.Parallel()
 

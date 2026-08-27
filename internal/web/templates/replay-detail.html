@@ -43,11 +43,18 @@
           <video controls preload="metadata" class="replay-video">
             <source src="{{.VideoURL}}" type="video/mp4">
           </video>
-          {{else}}
-          <div class="replay-preview-placeholder">
-            <strong>No video asset available.</strong>
-            <span>Use the scrubber and focused pane below to inspect the indexed replay timeline.</span>
+          {{else if .RecordingURL}}
+          <div id="rrwebReplayPlayer" class="replay-rrweb-player" data-recording-url="{{.RecordingURL}}">
+            <div class="replay-preview-placeholder">
+              <strong>Loading replay…</strong>
+              <span>Preparing the recorded browser session.</span>
+            </div>
           </div>
+		  {{else}}
+		  <div class="replay-preview-placeholder">
+			<strong>No replay recording available.</strong>
+			<span>Urgentry received replay metadata but has no stored rrweb segments to play.</span>
+		  </div>
           {{end}}
         </div>
 
@@ -232,6 +239,62 @@
     </section>
   </div>
 </div>
+
+{{if .RecordingURL}}
+<script>
+  (function() {
+    var target = document.getElementById('rrwebReplayPlayer');
+    if (!target) return;
+    var url = target.getAttribute('data-recording-url');
+    Promise.all([
+      fetch(url, { credentials: 'same-origin' }).then(function(response) {
+        if (!response.ok) throw new Error('Replay recording could not be loaded (' + response.status + ').');
+        return response.json();
+      }),
+      new Promise(function(resolve, reject) {
+        var frame = document.createElement('iframe');
+        frame.className = 'replay-rrweb-frame';
+        frame.title = 'Session replay';
+        frame.onload = function() {
+          var doc = frame.contentDocument;
+          doc.head.innerHTML = '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/@sentry-internal/rrweb-player@2.40.0/dist/style.css"><style>html,body,#player{margin:0;min-height:100%;background:#000}body{overflow:auto}</style>';
+          doc.body.innerHTML = '<div id="player"></div>';
+          var script = doc.createElement('script');
+          script.src = 'https://unpkg.com/@sentry-internal/rrweb-player@2.40.0/dist/rrweb-player.umd.cjs';
+          script.onload = function() { resolve(frame); };
+          script.onerror = function() { reject(new Error('The replay player library did not load.')); };
+          doc.body.appendChild(script);
+        };
+        target.innerHTML = '';
+        target.appendChild(frame);
+      })
+    ]).then(function(result) {
+        var payload = result[0];
+        var frame = result[1];
+        var events = payload && Array.isArray(payload.events) ? payload.events.filter(function(event) {
+          return event && typeof event.type === 'number' && Number.isFinite(event.timestamp);
+        }) : [];
+        if (events.length === 0) throw new Error('The replay recording contains no events.');
+        events.sort(function(a, b) { return a.timestamp - b.timestamp; });
+        if (!events.some(function(event) { return event.type === 2; })) {
+          throw new Error('The replay recording contains no DOM snapshot.');
+        }
+        var rrwebPlayerExport = frame.contentWindow.rrwebPlayer;
+        var ReplayPlayer = rrwebPlayerExport && (rrwebPlayerExport.default || rrwebPlayerExport.Player || rrwebPlayerExport);
+        if (typeof ReplayPlayer !== 'function') throw new Error('The replay player library did not load.');
+        var width = Math.max(320, Math.floor(target.clientWidth || 960));
+        new ReplayPlayer({
+          target: frame.contentDocument.getElementById('player'),
+          props: { events: events, autoPlay: false, width: width, height: Math.max(240, Math.floor(width * 0.5625)) }
+        });
+      })
+      .catch(function(error) {
+        target.innerHTML = '<div class="replay-preview-placeholder"><strong>Replay unavailable.</strong><span></span></div>';
+        target.querySelector('span').textContent = error && error.message ? error.message : 'The replay could not be loaded.';
+      });
+  })();
+</script>
+{{end}}
 
 <script>
   (function() {

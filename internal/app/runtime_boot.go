@@ -334,6 +334,7 @@ func (s *runtimeState) newHTTPServer() (*http.Server, error) {
 		outcomeStore:        s.outcomeStore,
 		proguardStore:       s.proguardStore,
 		sourceMapStore:      s.sourceMapStore,
+		codeMappings:        s.codeMappingStore,
 		releaseHealth:       s.releaseHealthStore,
 		nativeCrashes:       s.nativeCrashStore,
 		alertDeps:           s.alertDeps(),
@@ -364,6 +365,8 @@ func (s *runtimeState) newHTTPServer() (*http.Server, error) {
 		prevent:             s.control.preventStore,
 		metrics:             s.metrics,
 		version:             s.version,
+		forgejoURL:          s.cfg.ForgejoURL,
+		forgejoToken:        s.cfg.ForgejoToken,
 	})
 	handler, err := ghttp.BuildServer(string(s.role), s.cfg, deps)
 	if err != nil {

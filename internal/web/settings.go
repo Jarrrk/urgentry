@@ -51,6 +51,7 @@ type settingsCodeMapping struct {
 	SourceRoot    string
 	DefaultBranch string
 	RepoURL       string
+	Provider      string
 	CreatedAt     string
 }
 
@@ -114,15 +115,23 @@ func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request) {
 	dsn := ""
 	currentProject := overview.Project
 	var currentSettings *sharedstore.ProjectSettings
-	var catalogProjects []sharedstore.Project
 	if h.catalog != nil {
-		catalogProjects, err = h.catalog.ListProjects(ctx, "")
+		catalogProjects, err := h.catalog.ListProjects(ctx, "")
 		if err != nil {
 			writeWebInternal(w, r, "Failed to load settings.")
 			return
 		}
-		if len(catalogProjects) > 0 {
-			currentProject = &catalogProjects[0]
+		scope, err := h.defaultPageScope(ctx)
+		if err != nil {
+			writeWebInternal(w, r, "Failed to resolve selected project.")
+			return
+		}
+		currentProject = nil
+		for i := range catalogProjects {
+			if catalogProjects[i].ID == scope.ProjectID {
+				currentProject = &catalogProjects[i]
+				break
+			}
 		}
 	}
 	if currentProject != nil {
@@ -169,39 +178,6 @@ func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeWebInternal(w, r, "Failed to load settings.")
 			return
-		}
-		if len(projectKeys) == 0 {
-			for _, project := range catalogProjects {
-				keys, err := h.catalog.ListProjectKeys(ctx, project.OrgSlug, project.Slug)
-				if err != nil {
-					writeWebInternal(w, r, "Failed to load settings.")
-					return
-				}
-				if len(keys) == 0 {
-					continue
-				}
-				currentProject = &project
-				projectName = project.Name
-				projectSlug = project.Slug
-				if project.Platform != "" {
-					platform = project.Platform
-				}
-				if project.Status != "" {
-					projectStatus = project.Status
-				}
-				projectKeys = keys
-				currentSettings, err = h.catalog.GetProjectSettings(ctx, project.OrgSlug, project.Slug)
-				if err != nil {
-					writeWebInternal(w, r, "Failed to load settings.")
-					return
-				}
-				if currentSettings != nil {
-					eventRetentionDays = currentSettings.EventRetentionDays
-					attachmentRetentionDays = currentSettings.AttachmentRetentionDays
-					debugRetentionDays = currentSettings.DebugFileRetentionDays
-				}
-				break
-			}
 		}
 	}
 	keys := make([]settingsKey, 0, len(projectKeys))
@@ -274,6 +250,7 @@ func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request) {
 					SourceRoot:    m.SourceRoot,
 					DefaultBranch: m.DefaultBranch,
 					RepoURL:       m.RepoURL,
+					Provider:      m.Provider,
 					CreatedAt:     timeAgo(m.CreatedAt),
 				})
 			}
@@ -349,6 +326,11 @@ func (h *Handler) updateProjectSettings(w http.ResponseWriter, r *http.Request) 
 		writeWebBadRequest(w, r, "Invalid form")
 		return
 	}
+	projectID := strings.TrimSpace(r.FormValue("project_id"))
+	if projectID == "" {
+		writeWebBadRequest(w, r, "Project ID is required")
+		return
+	}
 
 	name := strings.TrimSpace(r.FormValue("name"))
 	platform := strings.TrimSpace(r.FormValue("platform"))
@@ -383,11 +365,17 @@ func (h *Handler) updateProjectSettings(w http.ResponseWriter, r *http.Request) 
 		writeWebInternal(w, r, "Failed to load settings.")
 		return
 	}
-	if len(projects) == 0 {
+	var project *sharedstore.Project
+	for i := range projects {
+		if projects[i].ID == projectID {
+			project = &projects[i]
+			break
+		}
+	}
+	if project == nil {
 		writeWebNotFound(w, r, "Project not found")
 		return
 	}
-	project := projects[0]
 	if h.authz != nil {
 		if err := h.authz.AuthorizeProject(r, project.ID, auth.ScopeProjectWrite); err != nil {
 			writeWebForbidden(w, r)
@@ -413,7 +401,11 @@ func (h *Handler) updateProjectSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/settings/", http.StatusSeeOther)
+	redirectTo := "/settings/"
+	if referrer, parseErr := url.Parse(r.Referer()); parseErr == nil && strings.HasPrefix(referrer.Path, "/settings/project/") {
+		redirectTo = "/settings/project/" + project.Slug + "/general/"
+	}
+	http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 }
 
 func (h *Handler) createOwnershipRule(w http.ResponseWriter, r *http.Request) {
@@ -509,12 +501,18 @@ func (h *Handler) createCodeMapping(w http.ResponseWriter, r *http.Request) {
 	if branch == "" {
 		branch = "main"
 	}
+	provider, ok := sharedstore.NormalizeCodeMappingProvider(r.FormValue("provider"))
+	if !ok {
+		writeWebBadRequest(w, r, "Repository provider must be GitHub, GitLab, Forgejo, or Gitea")
+		return
+	}
 	if err := h.codeMappings.CreateCodeMapping(r.Context(), &sharedstore.CodeMapping{
 		ProjectID:     projectID,
 		StackRoot:     strings.TrimSpace(r.FormValue("stack_root")),
 		SourceRoot:    strings.TrimSpace(r.FormValue("source_root")),
 		DefaultBranch: branch,
 		RepoURL:       repoURL,
+		Provider:      provider,
 	}); err != nil {
 		writeWebBadRequest(w, r, "Failed to create code mapping")
 		return

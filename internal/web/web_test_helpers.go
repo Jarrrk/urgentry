@@ -33,6 +33,7 @@ func testHandlerDeps(db *sql.DB, blobs store.BlobStore, dataDir string, authz *a
 		QueryGuard:     sqlite.NewQueryGuardStore(db),
 		NativeControl:  sqlite.NewNativeControlStore(db, blobs, sqlite.NewOperatorAuditStore(db)),
 		Analytics:      analyticsservice.SQLiteServices(db),
+		CodeMappings:   sqlite.NewCodeMappingStore(db),
 	}
 }
 

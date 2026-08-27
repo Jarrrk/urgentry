@@ -31,11 +31,11 @@ type dashboardTraceRow struct {
 	URL         string
 }
 
-func (h *Handler) dashboardRecentLogs(ctx context.Context, orgSlug, environment string, limit int) ([]dashboardLogRow, error) {
-	if h.webStore == nil || strings.TrimSpace(orgSlug) == "" || limit <= 0 {
+func (h *Handler) dashboardRecentLogs(ctx context.Context, projectID, environment string, limit int) ([]dashboardLogRow, error) {
+	if h.webStore == nil || strings.TrimSpace(projectID) == "" || limit <= 0 {
 		return nil, nil
 	}
-	items, err := h.webStore.ListRecentLogs(ctx, orgSlug, limit*4)
+	items, err := h.webStore.ListRecentProjectLogs(ctx, projectID, limit*4)
 	if err != nil {
 		return nil, err
 	}
@@ -63,11 +63,11 @@ func (h *Handler) dashboardRecentLogs(ctx context.Context, orgSlug, environment 
 	return rows, nil
 }
 
-func (h *Handler) dashboardRecentTransactions(ctx context.Context, orgSlug, environment string, limit int) ([]dashboardTraceRow, string, string, string, error) {
-	if h.webStore == nil || strings.TrimSpace(orgSlug) == "" || limit <= 0 {
+func (h *Handler) dashboardRecentTransactions(ctx context.Context, projectID, environment string, limit int) ([]dashboardTraceRow, string, string, string, error) {
+	if h.webStore == nil || strings.TrimSpace(projectID) == "" || limit <= 0 {
 		return nil, "Recent latency", "Unavailable", "No transactions yet", nil
 	}
-	items, err := h.webStore.ListRecentTransactions(ctx, orgSlug, limit*4)
+	items, err := h.webStore.ListRecentProjectTransactions(ctx, projectID, limit*4)
 	if err != nil {
 		return nil, "", "", "", err
 	}
@@ -101,11 +101,11 @@ func (h *Handler) dashboardRecentTransactions(ctx context.Context, orgSlug, envi
 	return rows, "Recent latency", formatTraceDuration(slowest.DurationMS), firstNonEmptyText(strings.TrimSpace(slowest.Transaction), strings.TrimSpace(slowest.TraceID), "Latest transaction"), nil
 }
 
-func (h *Handler) dashboardRecentReleases(ctx context.Context, limit int) ([]releaseRow, error) {
+func (h *Handler) dashboardRecentReleases(ctx context.Context, projectID string, limit int) ([]releaseRow, error) {
 	if h.webStore == nil || limit <= 0 {
 		return nil, nil
 	}
-	items, err := h.listReleasesDB(ctx, limit)
+	items, err := h.listReleasesDB(ctx, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

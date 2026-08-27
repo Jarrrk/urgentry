@@ -43,6 +43,10 @@ func (s *KeyStore) LookupKey(ctx context.Context, publicKey string) (*auth.Proje
 // EnsureDefaultKey creates a default project key if none exists.
 // Returns the public key string for logging.
 func EnsureDefaultKey(ctx context.Context, db *sql.DB) (string, error) {
+	if err := ensureDefaultTeam(ctx, db); err != nil {
+		return "", err
+	}
+
 	var count int
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM project_keys").Scan(&count); err != nil {
 		return "", err
@@ -68,6 +72,9 @@ func EnsureDefaultKey(ctx context.Context, db *sql.DB) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := ensureDefaultTeam(ctx, db); err != nil {
+		return "", err
+	}
 
 	// Create a default key
 	keyID := generateID()
@@ -80,4 +87,19 @@ func EnsureDefaultKey(ctx context.Context, db *sql.DB) (string, error) {
 		return "", err
 	}
 	return publicKey, nil
+}
+
+func ensureDefaultTeam(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO teams (id, organization_id, slug, name)
+		 SELECT 'default-team', id, 'default', 'Default'
+		 FROM organizations
+		 WHERE id = 'default-org'`); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx,
+		`UPDATE projects
+		 SET team_id = (SELECT id FROM teams WHERE organization_id = 'default-org' AND slug = 'default')
+		 WHERE id = 'default-project' AND organization_id = 'default-org' AND team_id IS NULL`)
+	return err
 }

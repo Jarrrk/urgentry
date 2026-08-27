@@ -98,7 +98,7 @@
           <div class="issue-cell">
             <span class="severity-dot severity-{{.Level}}"></span>
             <div class="issue-info">
-              <a href="/issues/{{.ID}}/" class="issue-title-link">{{.Title}}</a>
+              <a href="/issues/{{.ID}}/" class="issue-title-link" title="{{.Title}}">{{truncate .Title 60}}</a>
               <div class="issue-subtitle">
                 <span class="issue-short-id">{{.ShortID}}</span>
                 {{if .Culprit}}<span class="issue-culprit-text">{{.Culprit}}</span>{{end}}

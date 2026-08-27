@@ -66,6 +66,15 @@ func (s *ReplayStore) GetReplay(ctx context.Context, projectID, replayID string)
 	if err != nil {
 		return nil, err
 	}
+	// Playback must not depend on the derived replay_assets index. The canonical
+	// recording source is replay_segments, so expose those segments directly if
+	// indexing is delayed or failed.
+	if len(assets) == 0 {
+		assets, err = s.loadReplayAssets(ctx, projectID, replayID, replayID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	timeline, err := s.listReplayTimelineByManifest(ctx, manifest.ID, store.ReplayTimelineFilter{Limit: 500})
 	if err != nil {
 		return nil, err

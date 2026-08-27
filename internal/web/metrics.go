@@ -23,11 +23,16 @@ type metricsPageData struct {
 
 func (h *Handler) metricsPage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	scope, err := h.defaultPageScope(ctx)
+	if err != nil {
+		writeWebInternal(w, r, "Failed to resolve selected project.")
+		return
+	}
 	engine := sqlite.NewMetricBucketQueryEngine(h.db)
 
 	// Default: list all metrics from the last hour.
 	since := time.Now().UTC().Add(-1 * time.Hour)
-	summaries, err := engine.Summarise(ctx, "", since)
+	summaries, err := engine.Summarise(ctx, scope.ProjectID, since)
 	if err != nil {
 		h.render(w, "metrics.html", metricsPageData{
 			Title: "Metrics",
@@ -37,7 +42,7 @@ func (h *Handler) metricsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	names, _ := engine.ListMetricNames(ctx, "")
+	names, _ := engine.ListMetricNames(ctx, scope.ProjectID)
 
 	// If a metric is selected via query param, run an aggregation query.
 	selectedMetric := strings.TrimSpace(r.URL.Query().Get("metric"))
@@ -49,6 +54,7 @@ func (h *Handler) metricsPage(w http.ResponseWriter, r *http.Request) {
 	var chartResult *sqlite.MetricBucketResult
 	if selectedMetric != "" {
 		q := sqlite.MetricBucketQuery{
+			ProjectID:  scope.ProjectID,
 			MetricName: selectedMetric,
 			Aggregate:  sqlite.AggregateFunc(aggregate),
 			Start:      since,

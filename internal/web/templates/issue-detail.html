@@ -148,6 +148,33 @@
     </div>
     {{end}}
 
+    {{if .HasFeedback}}
+    <section class="detail-section issue-feedback-section" id="user-feedback">
+      <div class="issue-feedback-heading">
+        <h3>User Feedback <span class="issue-feedback-count">{{.TotalFeedback}}</span></h3>
+        <div class="detail-event-nav-btns" aria-label="User feedback navigation">
+          {{if .HasOlderFeedback}}<a href="/issues/{{.Issue.ID}}/?event_offset={{.EventOffset}}&feedback_offset={{inc .FeedbackOffset}}#user-feedback" class="btn-sm">&lsaquo; Older</a>{{end}}
+          <span class="event-counter">Feedback {{inc .FeedbackOffset}} of {{.TotalFeedback}}</span>
+          {{if .HasNewerFeedback}}<a href="/issues/{{.Issue.ID}}/?event_offset={{.EventOffset}}&feedback_offset={{sub .FeedbackOffset 1}}#user-feedback" class="btn-sm">Newer &rsaquo;</a>{{end}}
+        </div>
+      </div>
+      <div class="issue-feedback-card">
+        <div class="issue-feedback-meta">
+          <div>
+            <strong>{{.Feedback.Name}}</strong>
+            {{if .Feedback.Email}}<a href="mailto:{{.Feedback.Email}}">{{.Feedback.Email}}</a>{{end}}
+          </div>
+          <span>{{.Feedback.CreatedAt}}</span>
+        </div>
+        <div class="issue-feedback-comments">{{.Feedback.Comments}}</div>
+        <div class="issue-feedback-links">
+          {{if .Feedback.EventID}}<a href="/events/{{.Feedback.EventID}}/">View associated event</a>{{end}}
+          <a href="/feedback/{{.Feedback.ID}}/">Open full feedback</a>
+        </div>
+      </div>
+    </section>
+    {{end}}
+
     <!-- Highlights -->
     {{if .Highlights}}
     <section class="detail-section">
@@ -172,7 +199,7 @@
         {{if .FrameGroups}}
         <div class="stacktrace">
           <div class="stacktrace-header">
-            <span class="stacktrace-type">{{.Event.ExceptionType}}</span>
+            {{if .Event.ExceptionSourceURL}}<a href="{{.Event.ExceptionSourceURL}}" target="_blank" rel="noopener" class="stacktrace-type stacktrace-source-link">{{.Event.ExceptionType}}</a>{{else}}<span class="stacktrace-type">{{.Event.ExceptionType}}</span>{{end}}
             <span class="stacktrace-value">{{.Event.ExceptionValue}}</span>
           </div>
           {{range .FrameGroups}}
@@ -181,17 +208,17 @@
               <div class="collapsed-bar">Show {{.Count}} more frames &#9662;</div>
               <div class="collapsed-content">
                 {{range .Frames}}
-                <div class="frame frame-system">
-                  <div class="frame-header" onclick="event.stopPropagation(); var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}">
-                    <span class="frame-toggle">&#9660;</span>
-                    <span class="frame-file">{{.File}}</span>
+                <div class="frame frame-system" data-source-file="{{.File}}">
+                  <div class="frame-header" {{if .CodeLines}}onclick="event.stopPropagation(); var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}"{{end}}>
+                    {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">{{if .Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>{{else}}<span class="frame-toggle"></span>{{end}}
+                    {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
                     <span class="frame-in">in</span>
                     <span class="frame-func">{{.Function}}</span>
                     <span class="frame-line">at line {{.LineNo}}</span>
                     <button class="copy-btn frame-copy" onclick="event.stopPropagation(); copyToClipboard('{{.File}}:{{.LineNo}} in {{.Function}}', this)" title="Copy frame path"><i data-feather="copy"></i></button>
                   </div>
                   {{if .CodeLines}}
-                  <div class="frame-code">
+                  <div class="frame-code"{{if .Collapsed}} style="display:none"{{end}}>
                     {{range .CodeLines}}
                     <div class="code-line {{if .Highlight}}highlight{{end}}">
                       <span class="line-no">{{.Number}}</span>
@@ -207,10 +234,10 @@
             </div>
             {{else}}
             {{range .Frames}}
-            <div class="frame frame-inapp">
-              <div class="frame-header" onclick="var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}">
-                <span class="frame-toggle">&#9660;</span>
-                <span class="frame-file">{{.File}}</span>
+            <div class="frame {{if .InApp}}frame-inapp{{else}}frame-system{{end}}" data-source-file="{{.File}}">
+              <div class="frame-header" {{if .CodeLines}}onclick="var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}"{{end}}>
+                {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">{{if .Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>{{else}}<span class="frame-toggle"></span>{{end}}
+                {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
                 <span class="frame-in">in</span>
                 <span class="frame-func">{{.Function}}</span>
                 <span class="frame-line">at line {{.LineNo}}</span>
@@ -218,7 +245,7 @@
                 <button class="copy-btn frame-copy" onclick="event.stopPropagation(); copyToClipboard('{{.File}}:{{.LineNo}} in {{.Function}}', this)" title="Copy frame path"><i data-feather="copy"></i></button>
               </div>
               {{if .CodeLines}}
-              <div class="frame-code">
+              <div class="frame-code"{{if .Collapsed}} style="display:none"{{end}}>
                 {{range .CodeLines}}
                 <div class="code-line {{if .Highlight}}highlight{{end}}">
                   <span class="line-no">{{.Number}}</span>
@@ -236,14 +263,14 @@
         {{else if .Frames}}
         <div class="stacktrace">
           <div class="stacktrace-header">
-            <span class="stacktrace-type">{{.Event.ExceptionType}}</span>
+            {{if .Event.ExceptionSourceURL}}<a href="{{.Event.ExceptionSourceURL}}" target="_blank" rel="noopener" class="stacktrace-type stacktrace-source-link">{{.Event.ExceptionType}}</a>{{else}}<span class="stacktrace-type">{{.Event.ExceptionType}}</span>{{end}}
             <span class="stacktrace-value">{{.Event.ExceptionValue}}</span>
           </div>
           {{range .Frames}}
-          <div class="frame {{if .InApp}}frame-inapp{{else}}frame-system{{end}}">
-            <div class="frame-header" onclick="var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}">
-              <span class="frame-toggle">&#9660;</span>
-              <span class="frame-file">{{.File}}</span>
+          <div class="frame {{if .InApp}}frame-inapp{{else}}frame-system{{end}}" data-source-file="{{.File}}">
+            <div class="frame-header" {{if .CodeLines}}onclick="var c=this.nextElementSibling; if(c){c.style.display=c.style.display==='none'?'block':'none'; this.querySelector('.frame-toggle').textContent=c.style.display==='none'?'\u25B6':'\u25BC';}"{{end}}>
+              {{if .CodeLines}}<span class="frame-toggle" title="Collapse or expand source context">{{if .Collapsed}}&#9654;{{else}}&#9660;{{end}}</span>{{else}}<span class="frame-toggle"></span>{{end}}
+              {{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="noopener" class="frame-file frame-source-link" onclick="event.stopPropagation()">{{.File}}</a>{{else}}<span class="frame-file">{{.File}}</span>{{end}}
               <span class="frame-in">in</span>
               <span class="frame-func">{{.Function}}</span>
               <span class="frame-line">at line {{.LineNo}}</span>
@@ -251,7 +278,7 @@
               <button class="copy-btn frame-copy" onclick="event.stopPropagation(); copyToClipboard('{{.File}}:{{.LineNo}} in {{.Function}}', this)" title="Copy frame path"><i data-feather="copy"></i></button>
             </div>
             {{if .CodeLines}}
-            <div class="frame-code">
+            <div class="frame-code"{{if .Collapsed}} style="display:none"{{end}}>
               {{range .CodeLines}}
               <div class="code-line {{if .Highlight}}highlight{{end}}">
                 <span class="line-no">{{.Number}}</span>
@@ -418,7 +445,7 @@
     <!-- All Events list (below main content, always visible) -->
     {{if and .HasEvent .Events}}
     <section class="detail-section section-top-gap-sm">
-      <h3 class="section-toggle" onclick="toggleSection(this)"><span class="toggle-arrow">&#9654;</span> All Events ({{.Issue.EventCount}})</h3>
+      <h3 class="section-toggle" onclick="toggleSection(this)" aria-expanded="false"><span class="toggle-arrow">&#9654;</span> All Events ({{.TotalEvents}})</h3>
       <div class="section-body is-hidden">
         <table class="events-table">
           <thead>
@@ -615,13 +642,9 @@ function toggleSection(header) {
   var body = header.nextElementSibling;
   if (!body) return;
   var arrow = header.querySelector('.toggle-arrow');
-  if (body.style.display === 'none') {
-    body.style.display = '';
-    if (arrow) arrow.innerHTML = '&#9660;';
-  } else {
-    body.style.display = 'none';
-    if (arrow) arrow.innerHTML = '&#9654;';
-  }
+  var isHidden = body.classList.toggle('is-hidden');
+  header.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
+  if (arrow) arrow.innerHTML = isHidden ? '&#9654;' : '&#9660;';
 }
 
 function copyToClipboard(text, btn) {

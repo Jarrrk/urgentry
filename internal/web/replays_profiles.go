@@ -58,6 +58,7 @@ type replayDetailData struct {
 	SelectedIndex    int
 	Timeline         []replayTimelineView
 	VideoURL         string
+	RecordingURL     string
 	TraceCount       int
 	LinkedIssueCount int
 }
@@ -159,6 +160,13 @@ func (h *Handler) replayDetailPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to load replay.", http.StatusInternalServerError)
 		return
 	}
+	if replayNeedsCompatibilityReindex(record) && h.blobStore != nil {
+		if indexErr := sqlite.NewReplayStore(h.db, h.blobStore).IndexReplay(r.Context(), scope.ProjectID, replayID); indexErr == nil {
+			if refreshed, refreshErr := h.replays.GetReplay(r.Context(), scope.ProjectID, replayID); refreshErr == nil {
+				record = refreshed
+			}
+		}
+	}
 	issues, err := h.replayIssueLookup(r.Context(), record.Manifest.LinkedIssueIDs)
 	if err != nil {
 		http.Error(w, "Failed to load replay issue links.", http.StatusInternalServerError)
@@ -176,6 +184,13 @@ func (h *Handler) replayDetailPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	attachments := replayAssetRows(scope.OrganizationSlug, scope.ProjectSlug, replayID, record.Assets)
+	recordingURL := ""
+	for _, asset := range record.Assets {
+		if asset.Kind == "recording" || asset.Kind == "snapshot" {
+			recordingURL = "/api/0/projects/" + scope.OrganizationSlug + "/" + scope.ProjectSlug + "/replays/" + replayID + "/recording-events/"
+			break
+		}
+	}
 	row := replayRowFromManifest(record.Manifest)
 	h.render(w, "replay-detail.html", replayDetailData{
 		Title:            row.Title,
@@ -197,9 +212,27 @@ func (h *Handler) replayDetailPage(w http.ResponseWriter, r *http.Request) {
 		SelectedIndex:    selectedIndex,
 		Timeline:         visibleRows,
 		VideoURL:         replayVideoURL(attachments),
+		RecordingURL:     recordingURL,
 		TraceCount:       len(record.Manifest.TraceIDs),
 		LinkedIssueCount: len(record.Manifest.LinkedIssueIDs),
 	})
+}
+
+func replayNeedsCompatibilityReindex(record *sharedstore.ReplayRecord) bool {
+	if record == nil {
+		return false
+	}
+	// Older builds could store the recording attachment successfully but fail to
+	// populate replay_assets. Rebuild the manifest when the detail page exposes
+	// that stale state so existing recordings can recover without a migration.
+	if len(record.Assets) == 0 {
+		return true
+	}
+	if record.Manifest.ProcessingStatus != sharedstore.ReplayProcessingStatusFailed {
+		return false
+	}
+	errorText := strings.ToLower(record.Manifest.IngestError)
+	return strings.Contains(errorText, "parse replay payload") || strings.Contains(errorText, "unsupported replay recording payload")
 }
 
 func (h *Handler) profilesPage(w http.ResponseWriter, r *http.Request) {

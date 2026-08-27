@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/feather-icons/dist/feather.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=26">
+  <link rel="stylesheet" href="/static/style.css?v=34">
   <script src="https://unpkg.com/htmx.org@2.0.0"></script>
   <script>
     // Apply saved theme immediately (before paint) to avoid flash.
@@ -16,6 +16,12 @@
       var saved = localStorage.getItem('urgentry_theme');
       if (saved) {
         document.documentElement.setAttribute('data-theme', saved);
+      }
+      if (localStorage.getItem('urgentry_content_width') === 'full') {
+        document.documentElement.setAttribute('data-content-width', 'full');
+      }
+      if (localStorage.getItem('urgentry_analytics_home_guide_seen') === '1') {
+        document.documentElement.setAttribute('data-analytics-home-guide-seen', 'true');
       }
     })();
 
@@ -37,6 +43,11 @@
 
     function urgentrySetCookie(name, value) {
       document.cookie = name + '=' + encodeURIComponent(value) + '; path=/; max-age=' + (86400 * 365) + '; SameSite=Lax';
+    }
+
+    function dismissAnalyticsHomeGuide() {
+      localStorage.setItem('urgentry_analytics_home_guide_seen', '1');
+      document.documentElement.setAttribute('data-analytics-home-guide-seen', 'true');
     }
   </script>
 </head>
@@ -333,7 +344,26 @@
     function setGlobalProject(value) {
       if (!value) return;
       urgentrySetCookie('urgentry_project', value);
+      var switcher = document.getElementById('globalProjectSwitcher');
+      var selected = switcher && switcher.options[switcher.selectedIndex];
+      if (window.location.pathname.indexOf('/settings/project/') === 0 && selected && selected.dataset.settingsUrl) {
+        window.location.href = selected.dataset.settingsUrl;
+        return;
+      }
       window.location.reload();
+    }
+
+    function toggleContentWidth() {
+      var full = document.documentElement.getAttribute('data-content-width') === 'full';
+      if (full) {
+        document.documentElement.removeAttribute('data-content-width');
+        localStorage.setItem('urgentry_content_width', 'fixed');
+      } else {
+        document.documentElement.setAttribute('data-content-width', 'full');
+        localStorage.setItem('urgentry_content_width', 'full');
+      }
+      var button = document.getElementById('contentWidthToggle');
+      if (button) button.setAttribute('aria-pressed', full ? 'false' : 'true');
     }
 
     // -----------------------------------------------------------------------
@@ -595,10 +625,8 @@
           projects.forEach(function(project) {
             var option = document.createElement('option');
             option.value = project.value;
-            option.textContent = project.orgSlug + ' / ' + project.slug;
-            if (project.name && project.name !== project.slug) {
-              option.textContent += ' - ' + project.name;
-            }
+            option.textContent = (project.orgName || project.orgSlug) + ' / ' + (project.name || project.slug);
+            option.dataset.settingsUrl = project.settingsUrl || '';
             if (project.value === data.selected) {
               option.selected = true;
               if (settings && project.settingsUrl) settings.href = project.settingsUrl;
@@ -614,6 +642,41 @@
           form.hidden = true;
         });
     })();
+
+    var contentWidthToggle = document.getElementById('contentWidthToggle');
+    if (contentWidthToggle) {
+      contentWidthToggle.setAttribute('aria-pressed', document.documentElement.getAttribute('data-content-width') === 'full' ? 'true' : 'false');
+    }
+
+    function highlightLuaSource() {
+      var keywords = 'and|break|do|else|elseif|end|for|function|goto|if|in|local|not|or|repeat|return|then|until|while';
+      var builtins = 'assert|collectgarbage|error|getmetatable|ipairs|next|pairs|pcall|print|rawequal|rawget|rawlen|rawset|require|select|setmetatable|tonumber|tostring|type|xpcall';
+      var pattern = new RegExp('(--.*$)|("(?:\\\\.|[^"\\\\])*"|\\\'(?:\\\\.|[^\\\'\\\\])*\\\')|\\b(' + keywords + ')\\b|\\b(true|false|nil)\\b|\\b(' + builtins + ')\\b|\\b(0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b', 'g');
+      document.querySelectorAll('.frame[data-source-file] .line-content').forEach(function(line) {
+        var frame = line.closest('.frame');
+        var filename = (frame.getAttribute('data-source-file') || '').toLowerCase();
+        if (!filename.endsWith('.lua') || line.dataset.highlighted === 'true') return;
+        var source = line.textContent;
+        var fragment = document.createDocumentFragment();
+        var last = 0;
+        var match;
+        while ((match = pattern.exec(source)) !== null) {
+          if (match.index > last) fragment.appendChild(document.createTextNode(source.slice(last, match.index)));
+          var token = document.createElement('span');
+          token.className = match[1] ? 'syntax-comment' : match[2] ? 'syntax-string' : match[3] ? 'syntax-keyword' : match[4] ? 'syntax-literal' : match[5] ? 'syntax-builtin' : 'syntax-number';
+          token.textContent = match[0];
+          fragment.appendChild(token);
+          last = pattern.lastIndex;
+        }
+        if (last < source.length) fragment.appendChild(document.createTextNode(source.slice(last)));
+        line.textContent = '';
+        line.appendChild(fragment);
+        line.dataset.highlighted = 'true';
+      });
+    }
+
+    highlightLuaSource();
+    document.body.addEventListener('htmx:afterSwap', highlightLuaSource);
 
     // Initialize Feather Icons
     if (typeof feather !== 'undefined') feather.replace();
@@ -683,6 +746,10 @@
   </a>
   <div class="sidebar-bottom">
     <div class="sidebar-divider"></div>
+    <button class="nav-item" id="contentWidthToggle" onclick="toggleContentWidth()" aria-label="Toggle content width" aria-pressed="false">
+      <i data-feather="maximize-2"></i>
+      <span class="nav-label">Content width</span>
+    </button>
     <button class="nav-item" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle theme">
       <i data-feather="moon"></i>
       <span class="nav-label">Theme</span>
@@ -691,6 +758,12 @@
       <i data-feather="settings"></i>
       <span class="nav-label">Settings</span>
     </a>
+    <form action="/logout" method="post" class="sidebar-logout-form">
+      <button type="submit" class="nav-item" aria-label="Logout">
+        <i data-feather="log-out"></i>
+        <span class="nav-label">Logout</span>
+      </button>
+    </form>
     <a href="/manage/" class="nav-item {{if eq .Nav "manage"}}active{{end}}" aria-label="Admin">
       <i data-feather="shield"></i>
       <span class="nav-label">Admin</span>

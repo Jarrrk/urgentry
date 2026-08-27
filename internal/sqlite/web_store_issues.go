@@ -27,7 +27,7 @@ func (s *WebStore) ListIssues(ctx context.Context, opts store.IssueListOpts) ([]
 }
 
 func (s *WebStore) queryIssues(ctx context.Context, opts store.IssueListOpts) ([]store.WebIssue, error) {
-	query, args := buildIssueSearchListQuerySince("", opts.Filter, opts.Query, opts.Environment, opts.Sort, opts.Since, opts.Limit, opts.Offset)
+	query, args := buildIssueSearchListQuerySince(opts.ProjectID, opts.Filter, opts.Query, opts.Environment, opts.Sort, opts.Since, opts.Limit, opts.Offset)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func (s *WebStore) queryIssues(ctx context.Context, opts store.IssueListOpts) ([
 }
 
 func (s *WebStore) countFilteredIssues(ctx context.Context, opts store.IssueListOpts) (int, error) {
-	q, args := buildIssueSearchCountQuerySince("", opts.Filter, opts.Query, opts.Environment, opts.Since)
+	q, args := buildIssueSearchCountQuerySince(opts.ProjectID, opts.Filter, opts.Query, opts.Environment, opts.Since)
 	return s.count(ctx, q, args...)
 }
 
@@ -207,14 +207,14 @@ func (s *WebStore) ListMergedChildIssues(ctx context.Context, groupID string, li
 }
 
 // CountSearchGroups counts groups matching a search query, optionally filtered by status.
-func (s *WebStore) CountSearchGroups(ctx context.Context, filter, search string) (int, error) {
-	q, args := buildIssueSearchCountQuery("", filter, search, "")
+func (s *WebStore) CountSearchGroups(ctx context.Context, projectID, filter, search string) (int, error) {
+	q, args := buildIssueSearchCountQuery(projectID, filter, search, "")
 	return s.count(ctx, q, args...)
 }
 
 // CountSearchGroupsForEnvironment counts groups matching a search query within one environment.
-func (s *WebStore) CountSearchGroupsForEnvironment(ctx context.Context, env, filter, search string) (int, error) {
-	q, args := buildIssueSearchCountQuery("", filter, search, env)
+func (s *WebStore) CountSearchGroupsForEnvironment(ctx context.Context, projectID, env, filter, search string) (int, error) {
+	q, args := buildIssueSearchCountQuery(projectID, filter, search, env)
 	return s.count(ctx, q, args...)
 }
 

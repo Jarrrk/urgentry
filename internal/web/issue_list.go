@@ -51,6 +51,8 @@ type issueListData struct {
 	RangeEnd         int // 1-based end index
 	FilteredCount    int // total matching current filter/search
 	SavedSearches    []savedSearchView
+	ProjectID        string
+	LiveVersion      uint64
 }
 
 type issueRow struct {
@@ -311,6 +313,10 @@ func (h *Handler) issueListFromDB(w http.ResponseWriter, r *http.Request) {
 		RangeEnd:         rangeEnd,
 		FilteredCount:    filteredCount,
 		SavedSearches:    savedSearchViews,
+		ProjectID:        scope.ProjectID,
+	}
+	if h.issueUpdates != nil {
+		data.LiveVersion = h.issueUpdates.ProjectVersion(scope.ProjectID)
 	}
 
 	h.render(w, "issue-list.html", data)

@@ -277,6 +277,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Static files
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+	mux.HandleFunc("GET /issue-updates/projects/{id}", h.issueProjectVersion)
+	mux.HandleFunc("GET /issue-updates/issues/{id}", h.issueVersion)
 
 	mux.HandleFunc("GET /login/{$}", h.loginPage)
 	mux.HandleFunc("POST /login/{$}", h.loginAction)
@@ -338,8 +340,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /issues/errors/{$}", wrap(http.HandlerFunc(h.issueListErrorsPage)))
 	mux.Handle("GET /issues/warnings/{$}", wrap(http.HandlerFunc(h.issueListWarningsPage)))
 	mux.Handle("GET /issues/{id}/{$}", wrap(http.HandlerFunc(h.issueDetailPage)))
-	mux.Handle("GET /issues/live", wrap(http.HandlerFunc(h.issueListUpdates)))
-	mux.Handle("GET /issues/{id}/live", wrap(http.HandlerFunc(h.issueDetailUpdates)))
+	mux.Handle("GET /issues/live", wrap(http.HandlerFunc(h.issueLiveRefresh)))
+	mux.Handle("GET /issues/{id}/live", wrap(http.HandlerFunc(h.issueLiveRefresh)))
 	mux.Handle("GET /issues/{id}/events/{$}", wrap(http.HandlerFunc(h.issueEventsTab)))
 	mux.Handle("GET /issues/{id}/activity/{$}", wrap(http.HandlerFunc(h.issueActivityTab)))
 	mux.Handle("GET /issues/{id}/similar/{$}", wrap(http.HandlerFunc(h.issueSimilarTab)))

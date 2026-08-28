@@ -1,56 +1,19 @@
 package issueupdates
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
-func TestBrokerPublishesToIssueAndProjectSubscribers(t *testing.T) {
+func TestBrokerPublishesIssueAndProjectVersions(t *testing.T) {
 	b := NewBroker()
-	issueCh, unsubscribeIssue := b.SubscribeIssue("issue-1")
-	defer unsubscribeIssue()
-	projectCh, unsubscribeProject := b.SubscribeProject("project-1")
-	defer unsubscribeProject()
-	otherCh, unsubscribeOther := b.SubscribeIssue("issue-2")
-	defer unsubscribeOther()
-
+	b.Publish("project-1", "issue-1")
 	b.Publish("project-1", "issue-1")
 
-	assertSignalled(t, issueCh)
-	assertSignalled(t, projectCh)
-	select {
-	case <-otherCh:
-		t.Fatal("unrelated issue subscriber was signalled")
-	default:
+	if got := b.IssueVersion("issue-1"); got != 2 {
+		t.Fatalf("issue version = %d, want 2", got)
 	}
-}
-
-func TestBrokerCoalescesPendingSignalsAndUnsubscribes(t *testing.T) {
-	b := NewBroker()
-	ch, unsubscribe := b.SubscribeIssue("issue-1")
-	b.Publish("project-1", "issue-1")
-	b.Publish("project-1", "issue-1")
-	assertSignalled(t, ch)
-	select {
-	case <-ch:
-		t.Fatal("expected duplicate pending signals to be coalesced")
-	default:
+	if got := b.ProjectVersion("project-1"); got != 2 {
+		t.Fatalf("project version = %d, want 2", got)
 	}
-
-	unsubscribe()
-	b.Publish("project-1", "issue-1")
-	select {
-	case <-ch:
-		t.Fatal("unsubscribed channel was signalled")
-	default:
-	}
-}
-
-func assertSignalled(t *testing.T, ch <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-ch:
-	case <-time.After(time.Second):
-		t.Fatal("subscriber was not signalled")
+	if got := b.IssueVersion("issue-2"); got != 0 {
+		t.Fatalf("unrelated issue version = %d, want 0", got)
 	}
 }

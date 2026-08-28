@@ -39,6 +39,10 @@ func LogFromCtx(ctx context.Context) zerolog.Logger {
 // Sentry auth keys in the query string are redacted.
 func RequestLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/issue-updates/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		start := time.Now()
 		requestID := id.New()[:8]
 
@@ -90,19 +94,6 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += n
 	return n, err
-}
-
-func (rw *responseWriter) Flush() {
-	if !rw.wroteHeader {
-		rw.WriteHeader(http.StatusOK)
-	}
-	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
-func (rw *responseWriter) Unwrap() http.ResponseWriter {
-	return rw.ResponseWriter
 }
 
 func clientIP(r *http.Request) string {

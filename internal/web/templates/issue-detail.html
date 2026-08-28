@@ -691,16 +691,21 @@ document.addEventListener('click', function(e) {
 });
 
 (function() {
-  if (!window.EventSource) return;
+	var version = {{.LiveVersion}};
   var refreshing = false;
-  var updates = new EventSource('/issues/{{.Issue.ID}}/live');
-  updates.addEventListener('changed', function() {
-    if (refreshing) return;
-    refreshing = true;
-    updates.close();
-    window.location.reload();
-  });
-  window.addEventListener('pagehide', function() { updates.close(); });
+	var timer = window.setInterval(function() {
+		fetch('/issue-updates/issues/{{.Issue.ID}}', {cache: 'no-store'})
+			.then(function(resp) { return resp.ok ? resp.text() : ''; })
+			.then(function(value) {
+				var next = Number(value);
+				if (refreshing || !Number.isFinite(next) || next <= version) return;
+				refreshing = true;
+				window.clearInterval(timer);
+				window.location.reload();
+			})
+			.catch(function() {});
+	}, 2000);
+	window.addEventListener('pagehide', function() { window.clearInterval(timer); });
 })();
 </script>
 {{end}}

@@ -61,6 +61,26 @@ func TestRequestLogging_CapturesStatus(t *testing.T) {
 	}
 }
 
+func TestRequestLogging_SkipsIssueUpdatePolls(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Logger
+	log.Logger = zerolog.New(&output)
+	t.Cleanup(func() { log.Logger = previous })
+
+	handler := RequestLogging(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/issue-updates/issues/group-1", nil))
+
+	if output.Len() != 0 {
+		t.Fatalf("issue update poll was logged: %s", output.String())
+	}
+	if rec.Header().Get("X-Request-ID") != "" {
+		t.Fatal("issue update poll should bypass request instrumentation")
+	}
+}
+
 func TestRequestLogging_RedactsInviteAcceptTokenPath(t *testing.T) {
 	var output bytes.Buffer
 	previous := log.Logger

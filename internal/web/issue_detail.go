@@ -53,8 +53,9 @@ type issueDetailData struct {
 	HasNewerFeedback bool
 	TotalFeedback    int
 	// Beyond-Sentry: issue diff
-	IssueDiff []IssueDiffEntry
-	Workflow  issueWorkflowView
+	IssueDiff   []IssueDiffEntry
+	Workflow    issueWorkflowView
+	LiveVersion uint64
 }
 
 type issueFeedbackLister interface {
@@ -268,6 +269,9 @@ func (h *Handler) issueDetailFromDB(w http.ResponseWriter, r *http.Request, id s
 		TagFacets:      tagFacets,
 		Comments:       comments,
 		Workflow:       workflow,
+	}
+	if h.issueUpdates != nil {
+		data.LiveVersion = h.issueUpdates.IssueVersion(id)
 	}
 
 	if feedbackStore, ok := h.webStore.(issueFeedbackLister); ok {

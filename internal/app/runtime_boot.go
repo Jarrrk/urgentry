@@ -323,6 +323,7 @@ func (s *runtimeState) newHTTPServer() (*http.Server, error) {
 		samlUsers:           samlUsers,
 		rateLimiter:         s.rateLimiter,
 		pipeline:            s.pipeline,
+		issueUpdates:        s.issueUpdates,
 		lifecycle:           s.control.lifecycle,
 		control:             s.control.services,
 		queryGuard:          s.queryGuard,

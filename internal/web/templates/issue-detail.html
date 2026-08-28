@@ -689,5 +689,18 @@ document.addEventListener('click', function(e) {
     document.querySelectorAll('.assignee-menu').forEach(function(m) { m.style.display = 'none'; });
   }
 });
+
+(function() {
+  if (!window.EventSource) return;
+  var refreshing = false;
+  var updates = new EventSource('/issues/{{.Issue.ID}}/live');
+  updates.addEventListener('changed', function() {
+    if (refreshing) return;
+    refreshing = true;
+    updates.close();
+    window.location.reload();
+  });
+  window.addEventListener('pagehide', function() { updates.close(); });
+})();
 </script>
 {{end}}

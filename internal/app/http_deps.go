@@ -11,6 +11,7 @@ import (
 	ghttp "urgentry/internal/http"
 	"urgentry/internal/ingest"
 	"urgentry/internal/integration"
+	"urgentry/internal/issueupdates"
 	"urgentry/internal/metrics"
 	"urgentry/internal/pipeline"
 	"urgentry/internal/proguard"
@@ -32,6 +33,7 @@ type httpDepsInput struct {
 	samlUsers           auth.SAMLUserProvisioner
 	rateLimiter         auth.RateLimiter
 	pipeline            *pipeline.Pipeline
+	issueUpdates        *issueupdates.Broker
 	lifecycle           store.LifecycleStore
 	control             controlplane.Services
 	queryGuard          sqlite.QueryGuard
@@ -169,6 +171,7 @@ func newHTTPDeps(input httpDepsInput) ghttp.Deps {
 			ForgejoURL:     input.forgejoURL,
 			ForgejoToken:   input.forgejoToken,
 			QuotaStore:     input.quota,
+			IssueUpdates:   input.issueUpdates,
 		},
 		Metrics: input.metrics,
 		Version: input.version,

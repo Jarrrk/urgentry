@@ -18,6 +18,7 @@ import (
 	"urgentry/internal/api"
 	"urgentry/internal/auth"
 	"urgentry/internal/controlplane"
+	"urgentry/internal/issueupdates"
 	"urgentry/internal/sourcemap"
 	"urgentry/internal/sqlite"
 	"urgentry/internal/sqlutil"
@@ -70,6 +71,7 @@ type Handler struct {
 	startedAt       time.Time // server start time for time-to-first-event
 	authz           *auth.Authorizer
 	tokenManager    auth.TokenManager // optional: nil disables PAT management UI
+	issueUpdates    *issueupdates.Broker
 }
 
 type Dependencies struct {
@@ -93,6 +95,7 @@ type Dependencies struct {
 	ForgejoToken   string                 // optional: token for private Forgejo repositories
 	QuotaStore     *sqlite.QuotaStore     // optional: nil disables quota page
 	TokenManager   auth.TokenManager      // optional: nil disables PAT management UI
+	IssueUpdates   *issueupdates.Broker   // optional: nil disables live issue refresh
 }
 
 // ValidateDependencies checks the runtime dependencies needed to mount the web
@@ -250,6 +253,7 @@ func NewHandler(deps Dependencies) (*Handler, error) {
 		startedAt:       time.Now(),
 		authz:           deps.Auth,
 		tokenManager:    deps.TokenManager,
+		issueUpdates:    deps.IssueUpdates,
 	}
 	return h, nil
 }
@@ -334,6 +338,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /issues/errors/{$}", wrap(http.HandlerFunc(h.issueListErrorsPage)))
 	mux.Handle("GET /issues/warnings/{$}", wrap(http.HandlerFunc(h.issueListWarningsPage)))
 	mux.Handle("GET /issues/{id}/{$}", wrap(http.HandlerFunc(h.issueDetailPage)))
+	mux.Handle("GET /issues/live", wrap(http.HandlerFunc(h.issueListUpdates)))
+	mux.Handle("GET /issues/{id}/live", wrap(http.HandlerFunc(h.issueDetailUpdates)))
 	mux.Handle("GET /issues/{id}/events/{$}", wrap(http.HandlerFunc(h.issueEventsTab)))
 	mux.Handle("GET /issues/{id}/activity/{$}", wrap(http.HandlerFunc(h.issueActivityTab)))
 	mux.Handle("GET /issues/{id}/similar/{$}", wrap(http.HandlerFunc(h.issueSimilarTab)))

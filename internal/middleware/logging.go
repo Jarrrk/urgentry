@@ -92,6 +92,19 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+func (rw *responseWriter) Flush() {
+	if !rw.wroteHeader {
+		rw.WriteHeader(http.StatusOK)
+	}
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
 func clientIP(r *http.Request) string {
 	return requestmeta.ClientIP(r)
 }

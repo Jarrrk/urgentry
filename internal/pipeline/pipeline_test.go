@@ -50,6 +50,38 @@ func TestPipeline_ProcessesEvents(t *testing.T) {
 	p.Stop()
 }
 
+func TestPipeline_NotifiesIssueUpdateAfterEventPersistence(t *testing.T) {
+	events := store.NewMemoryEventStore()
+	proc := &issue.Processor{Events: events, Groups: issue.NewMemoryGroupStore(), Blobs: store.NewMemoryBlobStore()}
+	p := New(proc, 10, 1)
+	updated := make(chan [2]string, 1)
+	p.SetIssueUpdateCallback(func(projectID, issueID string) {
+		updated <- [2]string{projectID, issueID}
+	})
+	p.Start(context.Background())
+	defer p.Stop()
+
+	payload, _ := json.Marshal(map[string]any{
+		"event_id":  "11112222333344445555666677778888",
+		"platform":  "go",
+		"level":     "error",
+		"message":   "live update test",
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+	if ok := p.Enqueue(Item{ProjectID: "proj-live", RawEvent: payload}); !ok {
+		t.Fatal("Enqueue returned false")
+	}
+
+	select {
+	case got := <-updated:
+		if got[0] != "proj-live" || got[1] == "" {
+			t.Fatalf("issue update = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("issue update callback was not called")
+	}
+}
+
 func TestPipeline_GracefulShutdown(t *testing.T) {
 	events := store.NewMemoryEventStore()
 	groups := issue.NewMemoryGroupStore()

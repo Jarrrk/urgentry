@@ -19,6 +19,7 @@ import (
 	ghttp "urgentry/internal/http"
 	"urgentry/internal/integration"
 	"urgentry/internal/issue"
+	"urgentry/internal/issueupdates"
 	"urgentry/internal/metrics"
 	"urgentry/internal/nativesym"
 	"urgentry/internal/notify"
@@ -136,6 +137,7 @@ type runtimeState struct {
 	releaseStore           *sqlite.ReleaseStore
 	metrics                *metrics.Metrics
 	pipeline               *pipeline.Pipeline
+	issueUpdates           *issueupdates.Broker
 	operatorStore          store.OperatorStore
 	integrationRegistry    *integration.Registry
 	integrationConfigStore integration.Store
@@ -428,6 +430,8 @@ func (s *runtimeState) buildRuntimeServices() error {
 	proc.Metrics = s.metrics
 	pipelineWorkers := effectivePipelineWorkers(s.cfg, s.deployment)
 	s.pipeline = pipeline.NewDurable(proc, s.workerQueue, s.cfg.PipelineQueueSize, pipelineWorkers)
+	s.issueUpdates = issueupdates.NewBroker()
+	s.pipeline.SetIssueUpdateCallback(s.issueUpdates.Publish)
 	s.pipeline.SetMetrics(s.metrics)
 	s.pipeline.SetNativeJobProcessor(pipeline.NativeJobProcessorFunc(func(ctx context.Context, projectID string, payload []byte) error {
 		return s.nativeCrashStore.ProcessStackwalkJob(ctx, proc, projectID, payload)

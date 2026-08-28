@@ -52,6 +52,10 @@ type Result struct {
 // should be non-blocking.
 type AlertCallback func(ctx context.Context, projectID string, result issue.ProcessResult)
 
+// IssueUpdateCallback is invoked after an issue event has been persisted.
+// Implementations must not block the processing worker.
+type IssueUpdateCallback func(projectID, issueID string)
+
 // ProjectionCallback is invoked after a source-of-truth write succeeds.
 // It enqueues durable bridge projection work for the affected families.
 type ProjectionCallback func(ctx context.Context, projectID string, eventType string)
@@ -78,26 +82,27 @@ const alertQueueSize = 256
 
 // Pipeline is an async event processing pipeline.
 type Pipeline struct {
-	lifecycleMu        sync.Mutex
-	state              lifecycleState
-	processor          *issue.Processor
-	jobQueue           runtimeasync.Queue
-	queueSize          int
-	queue              chan Item
-	workers            int
-	workerWG           sync.WaitGroup
-	alertWG            sync.WaitGroup
-	cancel             context.CancelFunc
-	alertCallback      AlertCallback
-	projectionCallback ProjectionCallback
-	alertQueue         chan alertInvocation
-	stopCh             chan struct{}
-	alertStopCh        chan struct{}
-	metrics            *metrics.Metrics
-	workerID           string
-	nativeJobs         NativeJobProcessor
-	filterStore        FilterStore
-	outcomeStore       *sqlite.OutcomeStore
+	lifecycleMu         sync.Mutex
+	state               lifecycleState
+	processor           *issue.Processor
+	jobQueue            runtimeasync.Queue
+	queueSize           int
+	queue               chan Item
+	workers             int
+	workerWG            sync.WaitGroup
+	alertWG             sync.WaitGroup
+	cancel              context.CancelFunc
+	alertCallback       AlertCallback
+	issueUpdateCallback IssueUpdateCallback
+	projectionCallback  ProjectionCallback
+	alertQueue          chan alertInvocation
+	stopCh              chan struct{}
+	alertStopCh         chan struct{}
+	metrics             *metrics.Metrics
+	workerID            string
+	nativeJobs          NativeJobProcessor
+	filterStore         FilterStore
+	outcomeStore        *sqlite.OutcomeStore
 
 	// Queue timing parameters (configurable for benchmarks).
 	idlePollInterval     time.Duration
@@ -169,6 +174,13 @@ func (p *Pipeline) SetMetrics(m *metrics.Metrics) {
 func (p *Pipeline) SetAlertCallback(cb AlertCallback) {
 	p.mustBeConfigurable("SetAlertCallback")
 	p.alertCallback = cb
+}
+
+// SetIssueUpdateCallback registers a function to be called after issue event
+// persistence. Must be called before Start.
+func (p *Pipeline) SetIssueUpdateCallback(cb IssueUpdateCallback) {
+	p.mustBeConfigurable("SetIssueUpdateCallback")
+	p.issueUpdateCallback = cb
 }
 
 func (p *Pipeline) SetNativeJobProcessor(proc NativeJobProcessor) {
@@ -544,6 +556,9 @@ func (p *Pipeline) processItem(ctx context.Context, item Item) error {
 
 	if p.metrics != nil {
 		p.metrics.RecordProcessing(duration, result.IsNewGroup, result.IsRegression)
+	}
+	if p.issueUpdateCallback != nil && result.GroupID != "" {
+		p.issueUpdateCallback(item.ProjectID, result.GroupID)
 	}
 
 	// Run performance issue detection for transaction events after processing.

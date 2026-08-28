@@ -83,6 +83,7 @@ func (h *Handler) updateIssueStatus(w http.ResponseWriter, r *http.Request) {
 			}[action]
 			h.recordIssueActivityBestEffort(ctx, id, principal.User.ID, action, summary, "")
 		}
+		h.publishIssueUpdate(ctx, id)
 	}
 
 	// If HTMX request, tell HTMX to refresh in-place (smoother than a full redirect).
@@ -127,6 +128,7 @@ func (h *Handler) updateIssueAssignee(w http.ResponseWriter, r *http.Request) {
 		if principal := auth.PrincipalFromContext(ctx); principal != nil && principal.User != nil {
 			h.recordIssueActivityBestEffort(ctx, id, principal.User.ID, "assign", "Assigned issue", assignee)
 		}
+		h.publishIssueUpdate(ctx, id)
 	}
 
 	referer := r.Referer()
@@ -167,6 +169,7 @@ func (h *Handler) updateIssuePriority(w http.ResponseWriter, r *http.Request) {
 		if principal := auth.PrincipalFromContext(ctx); principal != nil && principal.User != nil {
 			h.recordIssueActivityBestEffort(ctx, id, principal.User.ID, "priority", "Priority changed", priorityLabel(priority))
 		}
+		h.publishIssueUpdate(ctx, id)
 	}
 
 	referer := r.Referer()
@@ -225,6 +228,7 @@ func (h *Handler) toggleIssueFlag(
 		activityMsg = enableMsg
 	}
 	h.recordIssueActivityBestEffort(r.Context(), r.PathValue("id"), principal.User.ID, activityKind, activityMsg, "")
+	h.publishIssueUpdate(r.Context(), r.PathValue("id"))
 	issueRedirectOrRefresh(w, r, fmt.Sprintf("/issues/%s/", r.PathValue("id")))
 }
 
@@ -277,6 +281,7 @@ func (h *Handler) addIssueComment(w http.ResponseWriter, r *http.Request) {
 		writeWebInternal(w, r, "Failed to save comment")
 		return
 	}
+	h.publishIssueUpdate(r.Context(), r.PathValue("id"))
 	issueRedirectOrRefresh(w, r, fmt.Sprintf("/issues/%s/", r.PathValue("id")))
 }
 
@@ -310,6 +315,8 @@ func (h *Handler) mergeIssue(w http.ResponseWriter, r *http.Request) {
 		writeWebInternal(w, r, "Failed to merge issue")
 		return
 	}
+	h.publishIssueUpdate(r.Context(), r.PathValue("id"))
+	h.publishIssueUpdate(r.Context(), target)
 	issueRedirectOrRefresh(w, r, fmt.Sprintf("/issues/%s/", r.PathValue("id")))
 }
 
@@ -337,6 +344,7 @@ func (h *Handler) unmergeIssue(w http.ResponseWriter, r *http.Request) {
 		writeWebInternal(w, r, "Failed to unmerge issue")
 		return
 	}
+	h.publishIssueUpdate(r.Context(), r.PathValue("id"))
 	issueRedirectOrRefresh(w, r, fmt.Sprintf("/issues/%s/", r.PathValue("id")))
 }
 

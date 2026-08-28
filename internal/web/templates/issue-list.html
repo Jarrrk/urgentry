@@ -298,5 +298,18 @@ function deleteSearch(id) {
     if (resp.ok) window.location.reload();
   });
 }
+
+(function() {
+  if (!window.EventSource) return;
+  var refreshing = false;
+  var updates = new EventSource('/issues/live');
+  updates.addEventListener('changed', function() {
+    if (refreshing) return;
+    refreshing = true;
+    updates.close();
+    window.location.reload();
+  });
+  window.addEventListener('pagehide', function() { updates.close(); });
+})();
 </script>
 {{end}}

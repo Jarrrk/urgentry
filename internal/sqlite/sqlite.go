@@ -16,6 +16,8 @@ import (
 
 const queueDBFileName = "urgentry-queue.db"
 
+const sqliteMaxOpenConnections = 8
+
 // Open opens or creates a SQLite database in dataDir.
 // If dataDir is empty, defaults to ~/.urgentry/.
 // Creates the directory if needed and runs pending migrations.
@@ -47,13 +49,16 @@ func openSQLiteFile(dataDir, dbPath string, migrateFn func(*sql.DB) error) (*sql
 	}
 	_ = os.Chmod(dataDir, 0o700)
 
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=30000")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(30000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	// SQLite doesn't support concurrent writes; one conn avoids SQLITE_BUSY.
-	db.SetMaxOpenConns(1)
+	// WAL permits readers to run alongside the single SQLite writer. Keeping a
+	// small pool prevents ingestion from starving web requests while the busy
+	// timeout continues to serialize competing writes.
+	db.SetMaxOpenConns(sqliteMaxOpenConnections)
+	db.SetMaxIdleConns(sqliteMaxOpenConnections)
 
 	// Enable WAL mode explicitly (the pragma in the DSN may not stick).
 	if err := withBusyRetry(30*time.Second, func() error {

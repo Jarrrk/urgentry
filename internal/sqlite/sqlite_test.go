@@ -33,6 +33,66 @@ func TestOpenCreatesDirAndDB(t *testing.T) {
 	}
 }
 
+func TestOpenUsesConcurrentWALConnections(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	if got := db.Stats().MaxOpenConnections; got != sqliteMaxOpenConnections {
+		t.Fatalf("MaxOpenConnections = %d, want %d", got, sqliteMaxOpenConnections)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	writer, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("reserve writer connection: %v", err)
+	}
+	defer writer.Close()
+
+	if _, err := writer.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("begin writer transaction: %v", err)
+	}
+	defer writer.ExecContext(context.Background(), "ROLLBACK")
+	if _, err := writer.ExecContext(ctx, `UPDATE _migrations SET applied_at = applied_at WHERE version = (SELECT MIN(version) FROM _migrations)`); err != nil {
+		t.Fatalf("write inside transaction: %v", err)
+	}
+
+	reader, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("reserve reader connection while writer is active: %v", err)
+	}
+	defer reader.Close()
+
+	var journalMode string
+	if err := reader.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatalf("read journal mode: %v", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		t.Fatalf("journal_mode = %q, want wal", journalMode)
+	}
+	var foreignKeys, busyTimeout int
+	if err := reader.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
+		t.Fatalf("read foreign_keys: %v", err)
+	}
+	if foreignKeys != 1 {
+		t.Fatalf("foreign_keys = %d, want 1", foreignKeys)
+	}
+	if err := reader.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		t.Fatalf("read busy_timeout: %v", err)
+	}
+	if busyTimeout != 30000 {
+		t.Fatalf("busy_timeout = %d, want 30000", busyTimeout)
+	}
+
+	var migrationCount int
+	if err := reader.QueryRowContext(ctx, "SELECT COUNT(*) FROM _migrations").Scan(&migrationCount); err != nil {
+		t.Fatalf("concurrent WAL read: %v", err)
+	}
+}
+
 func TestOpenCreatesOwnerOnlyDataDirAndDB(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("mode bits are not portable on Windows")

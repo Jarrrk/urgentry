@@ -125,28 +125,47 @@ func (h *Handler) dashboardFromDB(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	now := time.Now().UTC()
 	env := getSelectedEnvironment(w, r)
+	profiler := newDashboardProfiler(h.db)
+	var scope pageScope
+	finishedProfiling := false
+	defer func() {
+		if !finishedProfiling {
+			profiler.finish(w, r, scope, env)
+		}
+	}()
+
+	step := profiler.begin()
 	scope, err := h.defaultPageScope(ctx)
+	profiler.record("scope", step, boolCount(scope.ProjectID != ""), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to resolve dashboard scope.")
 		return
 	}
+	step = profiler.begin()
 	environments, err := h.webStore.ListEnvironments(ctx)
+	profiler.record("environments", step, len(environments), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard environments.")
 		return
 	}
 
+	step = profiler.begin()
 	summary, err := h.webStore.DashboardSummary(ctx, scope.ProjectID, now)
+	profiler.record("summary", step, 1, err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard summary.")
 		return
 	}
+	step = profiler.begin()
 	events, err := h.listRecentEventsDB(ctx, scope.ProjectID, 20)
+	profiler.record("recent_events", step, len(events), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard activity.")
 		return
 	}
+	step = profiler.begin()
 	burningRows, err := h.webStore.ListBurningIssues(ctx, scope.ProjectID, now, 5)
+	profiler.record("burning_issues", step, len(burningRows), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard issues.")
 		return
@@ -190,31 +209,51 @@ func (h *Handler) dashboardFromDB(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Beyond-Sentry features.
+	step = profiler.begin()
 	firstEventText := h.timeToFirstEvent(ctx, scope.ProjectID)
+	profiler.record("first_event", step, boolCount(firstEventText != ""), nil)
+	step = profiler.begin()
 	errorBudget := h.computeErrorBudget(ctx, scope.ProjectID)
+	errorBudgetRows := 0
+	if errorBudget != nil {
+		errorBudgetRows = errorBudget.TotalEvents
+	}
+	profiler.record("error_budget", step, errorBudgetRows, nil)
+	step = profiler.begin()
 	queryWidgets := h.dashboardQueryWidgets(ctx)
+	profiler.record("query_widgets", step, len(queryWidgets), nil)
 	starterViews := analyticsStarterViewCards("")
+	step = profiler.begin()
 	recentLogs, err := h.dashboardRecentLogs(ctx, scope.ProjectID, env, 5)
+	profiler.record("recent_logs", step, len(recentLogs), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard logs.")
 		return
 	}
+	step = profiler.begin()
 	recentTraces, latencyLabel, latencyValue, latencyHint, err := h.dashboardRecentTransactions(ctx, scope.ProjectID, env, 5)
+	profiler.record("recent_transactions", step, len(recentTraces), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard transactions.")
 		return
 	}
+	step = profiler.begin()
 	recentReleases, err := h.dashboardRecentReleases(ctx, scope.ProjectID, 4)
+	profiler.record("recent_releases", step, len(recentReleases), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard releases.")
 		return
 	}
+	step = profiler.begin()
 	recentReplays, err := h.dashboardRecentReplays(ctx, scope.ProjectID, env, 4)
+	profiler.record("recent_replays", step, len(recentReplays), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard replays.")
 		return
 	}
+	step = profiler.begin()
 	recentProfiles, err := h.dashboardRecentProfiles(ctx, scope.ProjectID, env, 4)
+	profiler.record("recent_profiles", step, len(recentProfiles), err)
 	if err != nil {
 		writeWebInternal(w, r, "Failed to load dashboard profiles.")
 		return
@@ -254,7 +293,16 @@ func (h *Handler) dashboardFromDB(w http.ResponseWriter, r *http.Request) {
 		QueryWidgets:     queryWidgets,
 	}
 
+	profiler.finish(w, r, scope, env)
+	finishedProfiling = true
 	h.render(w, "dashboard.html", data)
+}
+
+func boolCount(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (h *Handler) dashboardQueryWidgets(ctx context.Context) []queryWidget {

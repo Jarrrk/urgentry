@@ -26,6 +26,12 @@ func TestDashboardPage(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
+	serverTiming := resp.Header.Get("Server-Timing")
+	for _, metric := range []string{"dashboard;dur=", "summary;dur=", "burning_issues;dur=", "error_budget;dur="} {
+		if !strings.Contains(serverTiming, metric) {
+			t.Errorf("Server-Timing missing %q: %s", metric, serverTiming)
+		}
+	}
 	if !strings.Contains(body, "Dashboard") {
 		t.Error("expected body to contain 'Dashboard'")
 	}

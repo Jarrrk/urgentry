@@ -68,7 +68,10 @@ echo "Batch size:  $BATCH_SIZE"
 echo
 echo "IMPORTANT: Urgentry should be stopped before continuing."
 
-sqlite3 "$DB" ".timeout 60000" ".backup '$BACKUP'"
+sqlite3 "$DB" <<SQL
+.timeout 60000
+.backup '$BACKUP'
+SQL
 
 echo "Backup complete."
 
@@ -143,13 +146,16 @@ AFTER_TX="$(sqlite3 "$DB" "SELECT COUNT(*) FROM transactions;")"
 AFTER_SPANS="$(sqlite3 "$DB" "SELECT COUNT(*) FROM spans;")"
 
 echo
-echo "Transactions after:  $AFTER_TX"
-echo "Spans after:         $AFTER_SPANS"
+echo "Transactions after:   $AFTER_TX"
+echo "Spans after:          $AFTER_SPANS"
 echo "Transactions deleted: $TOTAL_DELETED"
 
 if [[ "$VACUUM" == "--vacuum" ]]; then
 	echo "Running VACUUM..."
-	sqlite3 "$DB" ".timeout 60000" "VACUUM;"
+	sqlite3 "$DB" <<'SQL'
+.timeout 60000
+VACUUM;
+SQL
 fi
 
 echo "Cleanup complete. Backup retained at: $BACKUP"

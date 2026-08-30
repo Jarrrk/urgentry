@@ -21,7 +21,8 @@ var migrations = func() []schemaMigration {
 			len(migrationsAnalytics)+
 			len(migrationsOperator)+
 			len(migrationsIntegration)+
-			len(migrationsFeatures),
+			len(migrationsFeatures)+
+			len(migrationsTraceMaintenance),
 	)
 	all = append(all, migrationsCore...)
 	all = append(all, migrationsEvents...)
@@ -29,6 +30,7 @@ var migrations = func() []schemaMigration {
 	all = append(all, migrationsOperator...)
 	all = append(all, migrationsIntegration...)
 	all = append(all, migrationsFeatures...)
+	all = append(all, migrationsTraceMaintenance...)
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].version < all[j].version
 	})
